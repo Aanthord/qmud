@@ -1,7 +1,28 @@
-// content.js — default content and loader
+// Default content + optional overrides (rooms.json, scenes.json). Items canonical here.
 
-// js/content.js (only the defaultItems() and defaultRooms() sections shown changed)
+export async function loadContent() {
+  const defaults = {
+    items: defaultItems(),
+    rooms: defaultRooms(),
+    scenes: defaultScenes()
+  };
 
+  const [rooms, scenes] = await Promise.all([fetchJSON('./rooms.json'), fetchJSON('./scenes.json')]);
+  if (rooms && typeof rooms === 'object') Object.assign(defaults.rooms, rooms);
+  if (Array.isArray(scenes)) defaults.scenes = scenes;
+
+  return defaults;
+}
+
+async function fetchJSON(path) {
+  try {
+    const r = await fetch(path, { cache: 'no-cache' });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch { return null; }
+}
+
+// ---------- Items ----------
 function defaultItems() {
   return {
     // Evolution items
@@ -16,12 +37,13 @@ function defaultItems() {
     ink_of_nyx:     { id:'ink_of_nyx',     name:'Ink of Nyx',      type:'consumable', price: 12, desc:'+Shadow integration' },
     folio_notes:    { id:'folio_notes',    name:'Folio of Notes',  type:'consumable', price: 8,  desc:'+Insight' },
 
-    // NEW: Books
-    codex_paths:    { id:'codex_paths',    name:'Codex of Forking Paths', type:'book', price: 30, desc:'A living labyrinth on paper. Opens new routes.' },
-    mirror_grimoire:{ id:'mirror_grimoire',name:'Mirror Grimoire',       type:'book', price: 45, desc:'Spells that rearrange what the page believes.' }
+    // Books
+    codex_paths:    { id:'codex_paths',     name:'Codex of Forking Paths', type:'book', price: 30, desc:'A living labyrinth on paper. Opens new routes.' },
+    mirror_grimoire:{ id:'mirror_grimoire', name:'Mirror Grimoire',       type:'book', price: 45, desc:'Spells that rearrange what the page believes.' }
   };
 }
 
+// ---------- Rooms ----------
 function defaultRooms() {
   return {
     entrance: {
@@ -29,7 +51,7 @@ function defaultRooms() {
       basePrompt: 'A vast library entrance with quantum properties, doors that exist in superposition',
       exits: { north: 'hall_of_mirrors', east: 'garden_of_forking_paths', west: 'shadow_archive' },
       literary: 'borges',
-      items: ['mirror_shard', 'codex_paths']  // add a book here
+      items: ['mirror_shard', 'codex_paths']
     },
     hall_of_mirrors: {
       name: 'The Hall of Mirrors',
@@ -50,7 +72,7 @@ function defaultRooms() {
       basePrompt: 'A dark library containing shadow selves and repressed memories, Jungian psychology',
       exits: { east: 'entrance', north: 'abyss_reading_room' },
       literary: 'jung',
-      items: ['shadow_lantern', 'mirror_grimoire'] // another book here
+      items: ['shadow_lantern', 'mirror_grimoire']
     },
     tea_room: {
       name: 'The Mad Tea Room',
@@ -61,11 +83,10 @@ function defaultRooms() {
       vendor: {
         name: 'The Scribe',
         goods: [
-          { item: 'tea_clarity',   price: 10 },
-          { item: 'cat_paradox',   price: 12 },
-          { item: 'ink_of_nyx',    price: 12 },
-          { item: 'folio_notes',   price: 8  },
-          // Books purchasable
+          { item: 'tea_clarity',    price: 10 },
+          { item: 'cat_paradox',    price: 12 },
+          { item: 'ink_of_nyx',     price: 12 },
+          { item: 'folio_notes',    price: 8  },
           { item: 'codex_paths',    price: 30 },
           { item: 'mirror_grimoire',price: 45 }
         ],
@@ -95,54 +116,37 @@ function defaultRooms() {
     }
   };
 }
-export const defaultScenes = [
-  { text: 'The threshold observes you before you observe it.\n\nHow do you approach the unknown?', choices: [
-    { text: 'Rush forward into mystery', value: 'active' },
-    { text: 'Study the patterns first', value: 'contemplative' },
-    { text: 'Feel for the right moment', value: 'intuitive' },
-    { text: 'Test each step carefully', value: 'cautious' }
-  ]},
-  { text: "Three paths appear, but you sense they're choosing you:\n\n- Stairs descending into your fears\n- Light bridge over infinite void\n- Familiar hall that shouldn't exist\n\nWhich accepts you?", choices: [
-    { text: 'The descent into shadow', value: 'shadow-seeker' },
-    { text: 'The bridge of faith', value: 'faith-walker' },
-    { text: 'The impossible familiar', value: 'comfort-drawn' },
-    { text: 'Wait for them to choose', value: 'observer' }
-  ]},
-  { text: "Mirrors show not reflections but possibilities:\n\n- A hero you'll never be\n- A child you've forgotten\n- A shadow wearing your face\n- An elder remembering your future\n\nWhich is most true?", choices: [
-    { text: 'The impossible hero', value: 'idealized' },
-    { text: 'The forgotten child', value: 'vulnerable' },
-    { text: 'The familiar shadow', value: 'integrated' },
-    { text: 'The future memory', value: 'wisdom' }
-  ]},
-  { text: 'A book burns with your forgotten moments.\nThe fire reveals rather than destroys.\n\nWhat do you do with your hidden self?', choices: [
-    { text: 'Read every burning word', value: 'full-integration' },
-    { text: 'Let the fire cleanse', value: 'rejection' },
-    { text: 'Save one essential page', value: 'partial-integration' },
-    { text: 'Add new pages to burn', value: 'shadow-work' }
-  ]},
-  { text: 'The Library asks for your true name.\nNot given, not chosen, but the one that resonates in quantum space.', choices: [
-    { text: 'Speak it into being', value: 'named', input: true },
-    { text: 'Remain undefined', value: 'unnamed' }
-  ]}
-];
 
-// attempt to fetch JSON files that override/extend defaults
-async function maybeFetchJSON(path) {
-  try {
-    const r = await fetch(path, { cache: 'no-store' });
-    if (!r.ok) return null;
-    return await r.json();
-  } catch { return null; }
-}
-
-export async function loadContent() {
-  const [roomsOverride, scenesOverride] = await Promise.all([
-    maybeFetchJSON('./rooms.json'),
-    maybeFetchJSON('./scenes.json')
-  ]);
-
-  const rooms = { ...defaultRooms, ...(roomsOverride || {}) };
-  const scenes = Array.isArray(scenesOverride) && scenesOverride.length ? scenesOverride : defaultScenes;
-
-  return { rooms, scenes };
+// ---------- Character Creation ----------
+function defaultScenes() {
+  return [
+    { text: 'The threshold observes you before you observe it.\n\nHow do you approach the unknown?', choices: [
+      { text: 'Rush forward into mystery', value: 'active' },
+      { text: 'Study the patterns first', value: 'contemplative' },
+      { text: 'Feel for the right moment', value: 'intuitive' },
+      { text: 'Test each step carefully', value: 'cautious' }
+    ] },
+    { text: "Three paths appear, but you sense they're choosing you:\n\n- Stairs descending into your fears\n- Light bridge over infinite void\n- Familiar hall that shouldn't exist\n\nWhich accepts you?", choices: [
+      { text: 'The descent into shadow', value: 'shadow-seeker' },
+      { text: 'The bridge of faith', value: 'faith-walker' },
+      { text: 'The impossible familiar', value: 'comfort-drawn' },
+      { text: 'Wait for them to choose', value: 'observer' }
+    ] },
+    { text: 'Mirrors show not reflections but possibilities:\n\n- A hero you\'ll never be\n- A child you\'ve forgotten\n- A shadow wearing your face\n- An elder remembering your future\n\nWhich is most true?', choices: [
+      { text: 'The impossible hero', value: 'idealized' },
+      { text: 'The forgotten child', value: 'vulnerable' },
+      { text: 'The familiar shadow', value: 'integrated' },
+      { text: 'The future memory', value: 'wisdom' }
+    ] },
+    { text: 'A book burns with your forgotten moments.\nThe fire reveals rather than destroys.\n\nWhat do you do with your hidden self?', choices: [
+      { text: 'Read every burning word', value: 'full-integration' },
+      { text: 'Let the fire cleanse', value: 'rejection' },
+      { text: 'Save one essential page', value: 'partial-integration' },
+      { text: 'Add new pages to burn', value: 'shadow-work' }
+    ] },
+    { text: 'The Library asks for your true name.\nNot given, not chosen, but the one that resonates in quantum space.', choices: [
+      { text: 'Speak it into being', value: 'named', input: true },
+      { text: 'Remain undefined', value: 'unnamed' }
+    ] }
+  ];
 }
