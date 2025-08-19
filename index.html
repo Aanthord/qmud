@@ -1,1245 +1,691 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quantum Truth MUD - The Canonical Library</title>
-    
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quantum Truth MUD — The Canonical Library</title>
+  <!--
+    Quantum Truth MUD (client-only, BYOK)
+    Changes in this revision:
+    - Robust OpenAI API integration: uses Responses API (/v1/responses) with safe fallback to Chat Completions
+    - Updated models: text = gpt-4o-mini by default; images = gpt-image-1
+    - Image generation now supports both URL and base64 payloads; graceful failure and caching added
+    - Fixed global access for inline onclick (window.game)
+    - Safer token/usage accounting; UI polish; map fast-travel; export/import saves
+    - Offline narrative expanded; new commands (stats, map, reset, save, load)
 
-        body {
-            background: linear-gradient(135deg, #0a0e27 0%, #1a0527 100%);
-            color: #e0e0ff;
-            font-family: 'Georgia', serif;
-            min-height: 100vh;
-            overflow-x: hidden;
-        }
+    SECURITY NOTE (BYOK): This is a Bring-Your-Own-Key front-end demo.
+    Keys typed here are stored in your own browser's localStorage and used only in requests to OpenAI.
+    For production apps, proxy calls through your server and NEVER ship a static key in client code.
+  -->
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root { --brand:#4a5fff; --ink:#e0e0ff; --bg1:#0a0e27; --bg2:#1a0527; }
+    body { background: linear-gradient(135deg, var(--bg1) 0%, var(--bg2) 100%); color: var(--ink); font-family: Georgia, serif; min-height: 100vh; overflow-x: hidden; }
 
-        /* Setup Screen */
-        .setup-screen {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            padding: 20px;
-        }
+    /* Setup Screen */
+    .setup-screen { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; padding:20px; }
+    .setup-container { background: rgba(0,0,0,.9); border:2px solid var(--brand); border-radius:15px; padding:40px; max-width:720px; width:100%; box-shadow:0 0 50px rgba(74,95,255,.3); animation:fadeIn 0.6s ease-in; }
+    @keyframes fadeIn { from{opacity:0; transform: translateY(12px);} to{opacity:1; transform:none;} }
+    .mirror-text { background: linear-gradient(90deg,#fff,#aaf,#fff); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; animation: shimmer 3s infinite; font-size:2.4em; text-align:center; margin-bottom:10px; }
+    @keyframes shimmer { 0%,100%{background-position:0%} 50%{background-position:100%} }
+    .api-input, .select-input { width:100%; padding:12px 14px; margin:10px 0; background: rgba(0,0,0,.6); border:1px solid var(--brand); color: var(--ink); border-radius:6px; font-size:1em; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .api-input:focus, .select-input:focus { outline:none; box-shadow:0 0 15px rgba(74,95,255,.5); }
+    .setup-button { width:100%; padding:14px; margin:10px 0; background: linear-gradient(135deg, var(--brand), #6a7fff); border:none; color:#fff; border-radius:6px; cursor:pointer; font-size:1.05em; transition: transform .15s ease, box-shadow .15s ease; }
+    .setup-button:hover { transform: translateY(-2px); box-shadow:0 8px 18px rgba(74,95,255,.45); }
+    .setup-button.secondary { background: rgba(74,95,255,.15); border:1px solid var(--brand); }
+    .tiny { font-size:.85em; color:#99a; }
 
-        .setup-container {
-            background: rgba(0, 0, 0, 0.9);
-            border: 2px solid #4a5fff;
-            border-radius: 15px;
-            padding: 40px;
-            max-width: 600px;
-            width: 100%;
-            box-shadow: 0 0 50px rgba(74, 95, 255, 0.3);
-            animation: fadeIn 1s ease-in;
-        }
+    /* Status Panel */
+    .status-panel { position:fixed; top:10px; left:10px; background:rgba(0,0,0,.95); border:1px solid var(--brand); border-radius:10px; padding:12px 14px; z-index:1000; display:none; min-width: 220px; }
+    .status-item { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:6px 0; font-size:.95em; }
+    .status-dot { width:10px; height:10px; border-radius:50%; margin-right:8px; animation: pulse 2s infinite; }
+    .status-dot.active { background:#4ade80; } .status-dot.inactive { background:#f87171; } .status-dot.processing { background:#fbbf24; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
 
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
+    /* Main Game Container */
+    #game-container { display:none; max-width:1200px; margin:0 auto; padding:20px; }
 
-        .mirror-text {
-            background: linear-gradient(90deg, #fff, #aaf, #fff);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            animation: shimmer 3s infinite;
-            font-size: 2.5em;
-            text-align: center;
-            margin-bottom: 20px;
-        }
+    /* Covenant Screen */
+    .covenant-screen { background:rgba(0,0,0,.9); border:2px solid var(--brand); border-radius:10px; padding:30px; margin-bottom:20px; box-shadow:0 0 30px rgba(74,95,255,.3); }
 
-        @keyframes shimmer {
-            0%, 100% { background-position: 0%; }
-            50% { background-position: 100%; }
-        }
+    /* Creation Screen */
+    .creation-screen { display:none; animation: fadeIn .6s ease-in; }
+    .scene-container { background: rgba(10,10,30,.9); border:1px solid var(--brand); border-radius:10px; padding:30px; margin:20px 0; min-height: 200px; }
+    .scene-text { font-size:1.05em; line-height:1.7; margin-bottom:18px; white-space: pre-wrap; }
+    .choice-btn { background: linear-gradient(135deg,#1a1a3a,#2a2a4a); border:1px solid var(--brand); color:var(--ink); padding:12px 20px; border-radius:6px; cursor:pointer; transition: all .2s; font-size:1.05em; margin:8px; }
+    .choice-btn:hover { background: linear-gradient(135deg,#2a2a4a,#3a3a5a); box-shadow:0 0 14px rgba(74,95,255,.45); transform: translateY(-2px); }
 
-        .api-input {
-            width: 100%;
-            padding: 15px;
-            margin: 10px 0;
-            background: rgba(0, 0, 0, 0.6);
-            border: 1px solid #4a5fff;
-            color: #e0e0ff;
-            border-radius: 5px;
-            font-size: 1em;
-            font-family: monospace;
-        }
+    /* Game Screen */
+    .game-screen { display:none; animation: fadeIn .6s ease-in; }
+    #image-display { width:100%; height: 480px; background:#000; border:2px solid var(--brand); border-radius:10px; margin-bottom:18px; position:relative; overflow:hidden; }
+    .room-image { width:100%; height:100%; object-fit:cover; }
+    .image-loading { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; color:var(--brand); font-size:1.05em; background: radial-gradient(ellipse at center, rgba(10,20,60,.35) 0%, rgba(0,0,0,.6) 65%); opacity:.95; }
+    .image-loading.hidden { display:none; }
+    .quantum-overlay { position:absolute; inset:0; pointer-events:none; background: radial-gradient(circle at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(100,200,255,.12) 0%, transparent 50%); mix-blend-mode: screen; }
 
-        .api-input:focus {
-            outline: none;
-            box-shadow: 0 0 15px rgba(74, 95, 255, 0.5);
-        }
+    #text-output { background: rgba(0,0,0,.6); border:1px solid var(--brand); border-radius:10px; padding:16px; margin-bottom:16px; height: 320px; overflow-y:auto; font-size:1.02em; line-height:1.6; }
+    .room-name { color:#64c8ff; font-weight:bold; font-size:1.2em; margin: 6px 0; }
+    .librarian-voice { border-left: 3px solid #8b5cf6; padding-left: 12px; margin: 8px 0; font-style: italic; color:#c4b5fd; }
+    .system-message { color:#9aa; font-size:.92em; font-style: italic; }
+    .command-echo { color:#9fd; }
+    #command-input { width:100%; background: rgba(0,0,0,.6); border:1px solid var(--brand); color:var(--ink); padding:14px; border-radius:6px; font-size:1.05em; font-family: Georgia, serif; }
+    #command-input:focus { outline:none; box-shadow:0 0 14px rgba(74,95,255,.45); }
+    #command-input:disabled { opacity:.55; cursor:not-allowed; }
 
-        .setup-button {
-            width: 100%;
-            padding: 15px;
-            margin: 10px 0;
-            background: linear-gradient(135deg, #4a5fff, #6a7fff);
-            border: none;
-            color: white;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 1.1em;
-            transition: all 0.3s;
-        }
+    /* Character Display */
+    .character-display { position:fixed; top:70px; right:10px; background: rgba(0,0,0,.9); border:1px solid var(--brand); padding:14px; border-radius:8px; width:220px; }
+    .stat-bar { height:4px; background: rgba(74,95,255,.3); border-radius:2px; margin:6px 0; overflow:hidden; }
+    .stat-fill { height:100%; background: linear-gradient(90deg,var(--brand), #64c8ff); transition: width .4s ease; }
 
-        .setup-button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(74, 95, 255, 0.5);
-        }
+    /* Map */
+    .map-display { position:fixed; bottom:10px; right:10px; background: rgba(0,0,0,.9); border:1px solid var(--brand); padding:10px; border-radius:8px; display:none; min-width: 180px; }
+    .map-grid { display:flex; flex-wrap:wrap; max-width:200px; gap:4px; }
+    .map-room { display:inline-block; width:30px; height:30px; background: rgba(74,95,255,.2); border:1px solid var(--brand); cursor:pointer; position:relative; border-radius:4px; }
+    .map-room.current { background: #4a5fff; animation: pulse 2s infinite; }
+    .map-room.visited { background: rgba(74,95,255,.55); }
 
-        .setup-button.secondary {
-            background: rgba(74, 95, 255, 0.2);
-            border: 1px solid #4a5fff;
-        }
+    /* Spinner */
+    .quantum-spinner { width:56px; height:56px; border:3px solid rgba(100,200,255,.3); border-top:3px solid #64c8ff; border-radius:50%; animation: spin 1s linear infinite; }
+    @keyframes spin { 0%{transform: rotate(0)} 100%{transform: rotate(360deg)} }
 
-        /* Status Indicator */
-        .status-panel {
-            position: fixed;
-            top: 10px;
-            left: 10px;
-            background: rgba(0, 0, 0, 0.95);
-            border: 1px solid #4a5fff;
-            border-radius: 10px;
-            padding: 15px;
-            z-index: 1000;
-            display: none;
-        }
+    /* Cache Info */
+    .cache-info { position:fixed; bottom:10px; left:10px; background: rgba(0,0,0,.9); border:1px solid var(--brand); padding:10px; border-radius:8px; font-size:.85em; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
 
-        .status-item {
-            display: flex;
-            align-items: center;
-            margin: 5px 0;
-        }
+    .error-message { background: rgba(248,113,113,.1); border:1px solid #f87171; color:#fca5a5; padding:10px; border-radius:6px; margin:10px 0; }
+    .success-message { background: rgba(74,222,128,.1); border:1px solid #4ade80; color:#86efac; padding:10px; border-radius:6px; margin:10px 0; }
 
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            margin-right: 10px;
-            animation: pulse 2s infinite;
-        }
-
-        .status-dot.active {
-            background: #4ade80;
-        }
-
-        .status-dot.inactive {
-            background: #f87171;
-        }
-
-        .status-dot.processing {
-            background: #fbbf24;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-
-        /* Main Game Container */
-        #game-container {
-            display: none;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-
-        /* Covenant Screen */
-        .covenant-screen {
-            background: rgba(0, 0, 0, 0.9);
-            border: 2px solid #4a5fff;
-            border-radius: 10px;
-            padding: 30px;
-            margin-bottom: 20px;
-            box-shadow: 0 0 30px rgba(74, 95, 255, 0.3);
-        }
-
-        /* Creation Screen */
-        .creation-screen {
-            display: none;
-            animation: fadeIn 1s ease-in;
-        }
-
-        .scene-container {
-            background: rgba(10, 10, 30, 0.9);
-            border: 1px solid #4a5fff;
-            border-radius: 10px;
-            padding: 30px;
-            margin: 20px 0;
-            min-height: 200px;
-        }
-
-        .scene-text {
-            font-size: 1.1em;
-            line-height: 1.8;
-            margin-bottom: 20px;
-            white-space: pre-wrap;
-        }
-
-        .choice-btn {
-            background: linear-gradient(135deg, #1a1a3a, #2a2a4a);
-            border: 1px solid #4a5fff;
-            color: #e0e0ff;
-            padding: 15px 30px;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: all 0.3s;
-            font-size: 1.1em;
-            margin: 10px;
-        }
-
-        .choice-btn:hover {
-            background: linear-gradient(135deg, #2a2a4a, #3a3a5a);
-            box-shadow: 0 0 15px rgba(74, 95, 255, 0.5);
-            transform: translateY(-2px);
-        }
-
-        /* Game Screen */
-        .game-screen {
-            display: none;
-            animation: fadeIn 1s ease-in;
-        }
-
-        #image-display {
-            width: 100%;
-            height: 500px;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            border: 2px solid #4a5fff;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            position: relative;
-            overflow: hidden;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .room-image {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            display: none;
-        }
-
-        .room-image.loaded {
-            display: block;
-        }
-
-        .image-loading {
-            position: absolute;
-            color: #4a5fff;
-            font-size: 1.2em;
-            text-align: center;
-        }
-
-        .quantum-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            background: radial-gradient(circle at var(--mouse-x, 50%) var(--mouse-y, 50%), 
-                rgba(100, 200, 255, 0.1) 0%, 
-                transparent 50%);
-            mix-blend-mode: screen;
-        }
-
-        #text-output {
-            background: rgba(0, 0, 0, 0.6);
-            border: 1px solid #4a5fff;
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 20px;
-            height: 300px;
-            overflow-y: auto;
-            font-size: 1.05em;
-            line-height: 1.6;
-        }
-
-        .room-name {
-            color: #64c8ff;
-            font-weight: bold;
-            font-size: 1.2em;
-            margin-bottom: 5px;
-        }
-
-        .librarian-voice {
-            border-left: 3px solid #8b5cf6;
-            padding-left: 15px;
-            margin: 10px 0;
-            font-style: italic;
-            color: #c4b5fd;
-        }
-
-        .system-message {
-            color: #888;
-            font-size: 0.9em;
-            font-style: italic;
-        }
-
-        .error-message {
-            color: #f87171;
-            font-style: italic;
-        }
-
-        #command-input {
-            width: 100%;
-            background: rgba(0, 0, 0, 0.6);
-            border: 1px solid #4a5fff;
-            color: #e0e0ff;
-            padding: 15px;
-            border-radius: 5px;
-            font-size: 1.1em;
-            font-family: 'Georgia', serif;
-        }
-
-        #command-input:focus {
-            outline: none;
-            box-shadow: 0 0 15px rgba(74, 95, 255, 0.5);
-        }
-
-        #command-input:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        /* Character Display */
-        .character-display {
-            position: fixed;
-            top: 70px;
-            right: 10px;
-            background: rgba(0, 0, 0, 0.9);
-            border: 1px solid #4a5fff;
-            padding: 15px;
-            border-radius: 5px;
-            width: 200px;
-        }
-
-        .stat-bar {
-            height: 4px;
-            background: rgba(74, 95, 255, 0.3);
-            border-radius: 2px;
-            margin: 5px 0;
-            overflow: hidden;
-        }
-
-        .stat-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #4a5fff, #64c8ff);
-            transition: width 0.5s ease;
-        }
-
-        /* Loading Spinner */
-        .quantum-spinner {
-            width: 60px;
-            height: 60px;
-            border: 3px solid rgba(100, 200, 255, 0.3);
-            border-top: 3px solid #64c8ff;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 20px;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        /* Cache Info */
-        .cache-info {
-            position: fixed;
-            bottom: 10px;
-            left: 10px;
-            background: rgba(0, 0, 0, 0.9);
-            border: 1px solid #4a5fff;
-            padding: 10px;
-            border-radius: 5px;
-            font-size: 0.8em;
-            font-family: monospace;
-        }
-    </style>
+    .row { display:flex; gap:8px; align-items:center; }
+  </style>
 </head>
 <body>
-    <!-- Setup Screen -->
-    <div id="setup-screen" class="setup-screen">
-        <div class="setup-container">
-            <h1 class="mirror-text">The Canonical Library</h1>
-            <p style="text-align: center; margin: 20px 0; line-height: 1.6;">
-                A Quantum Truth MUD powered by AI
-            </p>
-            
-            <div style="margin: 30px 0;">
-                <label style="display: block; margin-bottom: 10px;">OpenAI API Key:</label>
-                <input type="password" id="api-key-input" class="api-input" placeholder="sk-..." value="">
-                <p style="font-size: 0.9em; color: #888; margin-top: 5px;">
-                    Your API key is stored locally and never sent to any server except OpenAI.
-                </p>
-            </div>
-            
-            <button class="setup-button" onclick="game.validateAndStart()">
-                Enter the Library
-            </button>
-            
-            <button class="setup-button secondary" onclick="game.startOffline()">
-                Play Offline (No AI/Images)
-            </button>
-            
-            <p style="text-align: center; margin-top: 20px; font-size: 0.9em; color: #888;">
-                Get your API key from <a href="https://platform.openai.com/api-keys" target="_blank" style="color: #4a5fff;">OpenAI Platform</a>
-            </p>
+  <!-- Setup Screen -->
+  <div id="setup-screen" class="setup-screen">
+    <div class="setup-container">
+      <h1 class="mirror-text">The Canonical Library</h1>
+      <p style="text-align:center; margin:12px 0 16px; line-height:1.6;">A Quantum Truth MUD powered by AI</p>
+
+      <div class="row" style="margin:14px 0 4px; justify-content:space-between;">
+        <div style="flex:1;">
+          <label style="display:block; margin-bottom:8px;">OpenAI API Key (BYOK):</label>
+          <input type="password" id="api-key-input" class="api-input" placeholder="sk-..." value="" />
+          <p class="tiny">Stored locally and sent only to OpenAI. For production, use a server-side proxy.</p>
         </div>
+      </div>
+
+      <div class="row" style="gap:12px;">
+        <div style="flex:2;">
+          <label style="display:block; margin:10px 0 6px;">Text Model</label>
+          <select id="text-model" class="select-input">
+            <option value="gpt-4o-mini" selected>gpt-4o-mini (default)</option>
+            <option value="gpt-4o">gpt-4o</option>
+            <option value="gpt-5">gpt-5 (if enabled)</option>
+          </select>
+        </div>
+        <div style="flex:2;">
+          <label style="display:block; margin:10px 0 6px;">Image Model</label>
+          <select id="image-model" class="select-input">
+            <option value="gpt-image-1" selected>gpt-image-1</option>
+          </select>
+        </div>
+      </div>
+
+      <button class="setup-button" onclick="game.validateAndStart()">Enter the Library</button>
+      <button class="setup-button secondary" onclick="game.startOffline()">Play Offline (No AI/Images)</button>
+
+      <p style="text-align:center; margin-top:14px;" class="tiny">Get your API key: <a href="https://platform.openai.com/api-keys" target="_blank" style="color:var(--brand);">OpenAI Platform</a></p>
+    </div>
+  </div>
+
+  <!-- Status Panel -->
+  <div id="status-panel" class="status-panel">
+    <div class="status-item"><span><span class="status-dot inactive" id="ai-status"></span>AI</span><span id="ai-status-text">Offline</span></div>
+    <div class="status-item"><span><span class="status-dot inactive" id="image-status"></span>Images</span><span id="image-status-text">Offline</span></div>
+    <div class="status-item"><span>Tokens</span><span id="token-count">0</span></div>
+    <div class="status-item"><button class="setup-button secondary" style="padding:8px 10px; font-size:.9em;" onclick="game.resetGameConfirm()">Reset</button></div>
+  </div>
+
+  <!-- Main Game Container -->
+  <div id="game-container">
+    <!-- Covenant Screen -->
+    <div id="covenant" class="covenant-screen">
+      <h1 class="mirror-text">The Mirror Covenant</h1>
+      <h2>⚠️ Essential Understanding</h2>
+      <ul style="margin:14px 0; line-height:1.7;">
+        <li>Your character reflects your choices.</li>
+        <li>The Quantum Librarian observes and adapts.</li>
+        <li>Each room is unique to your state.</li>
+        <li>Your path is yours alone.</li>
+      </ul>
+      <p style="margin: 16px 0; font-style: italic; text-align:center;">“We don't see things as they are, we see them as we are.” — Anaïs Nin</p>
+      <div style="text-align:center;">
+        <button class="choice-btn" onclick="game.acceptCovenant()">I Accept the Mirror's Truth</button>
+      </div>
     </div>
 
-    <!-- Status Panel -->
-    <div id="status-panel" class="status-panel">
-        <div class="status-item">
-            <div class="status-dot inactive" id="ai-status"></div>
-            <span>AI: <span id="ai-status-text">Offline</span></span>
-        </div>
-        <div class="status-item">
-            <div class="status-dot inactive" id="image-status"></div>
-            <span>Images: <span id="image-status-text">Offline</span></span>
-        </div>
-        <div class="status-item">
-            <span style="font-size: 0.9em;">Tokens: <span id="token-count">0</span></span>
-        </div>
+    <!-- Character Creation -->
+    <div id="creation" class="creation-screen">
+      <div class="scene-container">
+        <div id="creation-text" class="scene-text"></div>
+        <div id="creation-choices" class="choices"></div>
+      </div>
     </div>
 
-    <!-- Main Game Container -->
-    <div id="game-container">
-        <!-- Covenant Screen -->
-        <div id="covenant" class="covenant-screen">
-            <h1 class="mirror-text">The Mirror Covenant</h1>
-            <h2>⚠️ Essential Understanding</h2>
-            
-            <ul style="margin: 20px 0; line-height: 1.8;">
-                <li>Your character reflects your true nature through your choices</li>
-                <li>The Quantum Librarian AI observes and responds to your authentic self</li>
-                <li>Each room is uniquely generated based on your quantum state</li>
-                <li>Your journey is yours alone - no two paths are the same</li>
-            </ul>
-            
-            <p style="margin: 20px 0; font-style: italic; text-align: center;">
-                "We don't see things as they are, we see them as we are." - Anaïs Nin
-            </p>
-            
-            <div style="text-align: center;">
-                <button class="choice-btn" onclick="game.acceptCovenant()">
-                    I Accept the Mirror's Truth
-                </button>
-            </div>
+    <!-- Main Game -->
+    <div id="game" class="game-screen">
+      <div id="image-display">
+        <img id="room-image" class="room-image" src="" alt="" />
+        <div class="image-loading hidden" id="image-loading">
+          <div class="quantum-spinner"></div>
+          <p>Generating quantum reality…</p>
         </div>
-
-        <!-- Character Creation -->
-        <div id="creation" class="creation-screen">
-            <div class="scene-container">
-                <div id="creation-text" class="scene-text"></div>
-                <div id="creation-choices" class="choices"></div>
-            </div>
-        </div>
-
-        <!-- Main Game -->
-        <div id="game" class="game-screen">
-            <div id="image-display">
-                <img id="room-image" class="room-image" src="" alt="">
-                <div class="image-loading" id="image-loading">
-                    <div class="quantum-spinner"></div>
-                    <p>Generating quantum reality...</p>
-                </div>
-                <div class="quantum-overlay"></div>
-            </div>
-            <div id="text-output"></div>
-            <input type="text" id="command-input" placeholder="What do you do?" onkeypress="if(event.key==='Enter') game.processCommand()">
-        </div>
-
-        <!-- Character Display -->
-        <div id="character" class="character-display" style="display: none;">
-            <div style="text-align: center; font-weight: bold; color: #64c8ff; margin-bottom: 10px;">
-                <span id="char-name">Unknown</span>
-            </div>
-            <div style="font-size: 0.9em;">
-                <div>Truth: <span id="truth-density">50%</span></div>
-                <div class="stat-bar"><div class="stat-fill" id="truth-bar" style="width: 50%"></div></div>
-                
-                <div>Quantum: <span id="quantum-coherence">0%</span></div>
-                <div class="stat-bar"><div class="stat-fill" id="quantum-bar" style="width: 0%"></div></div>
-                
-                <div>Shadow: <span id="shadow-integration">0%</span></div>
-                <div class="stat-bar"><div class="stat-fill" id="shadow-bar" style="width: 0%"></div></div>
-                
-                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #4a5fff;">
-                    <div>Stage: <span id="hero-stage" style="color: #aaf;">Threshold</span></div>
-                    <div>Actions: <span id="action-count" style="color: #aaf;">0</span></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Cache Info -->
-        <div class="cache-info">
-            <div>Images Cached: <span id="cache-count">0</span></div>
-            <div>Cache Size: <span id="cache-size">0 KB</span></div>
-        </div>
+        <div class="quantum-overlay"></div>
+      </div>
+      <div id="text-output"></div>
+      <input type="text" id="command-input" placeholder="What do you do? (try: help)" onkeypress="if(event.key==='Enter') game.processCommand()" />
     </div>
 
-    <script>
-        class QuantumTruthMUD {
-            constructor() {
-                this.apiKey = null;
-                this.aiEnabled = false;
-                this.imageCache = new Map();
-                this.tokenCount = 0;
-                this.processingCommand = false;
-                this.imageGenerationEnabled = true; // Can toggle off to save API calls
-                
-                this.state = {
-                    stage: 'setup',
-                    player: null,
-                    currentRoom: null,
-                    visitedRooms: new Set(),
-                    actionCount: 0,
-                    history: [],
-                    quantumState: {
-                        coherence: 0,
-                        entanglement: [],
-                        superposition: 0
-                    },
-                    truthDensity: 0.5,
-                    shadowIntegration: 0,
-                    creationData: {
-                        observations: [],
-                        currentScene: 0,
-                        startTime: Date.now()
-                    }
-                };
+    <!-- Character Display -->
+    <div id="character" class="character-display" style="display:none;">
+      <div style="text-align:center; font-weight:bold; color:#64c8ff; margin-bottom:8px;"><span id="char-name">Unknown</span></div>
+      <div style="font-size:.95em;">
+        <div>Truth: <span id="truth-density">50%</span></div>
+        <div class="stat-bar"><div class="stat-fill" id="truth-bar" style="width:50%"></div></div>
+        <div>Quantum: <span id="quantum-coherence">0%</span></div>
+        <div class="stat-bar"><div class="stat-fill" id="quantum-bar" style="width:0%"></div></div>
+        <div>Shadow: <span id="shadow-integration">0%</span></div>
+        <div class="stat-bar"><div class="stat-fill" id="shadow-bar" style="width:0%"></div></div>
+        <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--brand);">
+          <div>Stage: <span id="hero-stage" style="color:#aaf;">Threshold</span></div>
+          <div>Actions: <span id="action-count" style="color:#aaf;">0</span></div>
+        </div>
+      </div>
+    </div>
 
-                // Room templates
-                this.roomTemplates = {
-                    'entrance': {
-                        name: 'The Library Entrance',
-                        basePrompt: 'A vast mystical library entrance, doors that exist in multiple dimensions simultaneously, ethereal and mysterious',
-                        exits: { north: 'hall_of_mirrors', east: 'garden_of_forking_paths', west: 'shadow_archive' },
-                        literary: 'borges'
-                    },
-                    'hall_of_mirrors': {
-                        name: 'The Hall of Mirrors',
-                        basePrompt: 'An infinite corridor of mirrors reflecting different realities, surreal and dreamlike, Alice in Wonderland aesthetic',
-                        exits: { south: 'entrance', north: 'quantum_laboratory', east: 'tea_room' },
-                        literary: 'carroll'
-                    },
-                    'garden_of_forking_paths': {
-                        name: 'The Garden of Forking Paths',
-                        basePrompt: 'A mystical garden where paths split into infinite possibilities, Borges-inspired labyrinth with temporal distortions',
-                        exits: { west: 'entrance', north: 'tea_room', east: 'oracle_chamber' },
-                        literary: 'borges'
-                    },
-                    'shadow_archive': {
-                        name: 'The Shadow Archive',
-                        basePrompt: 'A dark gothic library filled with shadow selves and repressed memories, Jungian psychological horror aesthetic',
-                        exits: { east: 'entrance', north: 'abyss_reading_room' },
-                        literary: 'jung'
-                    },
-                    'tea_room': {
-                        name: 'The Mad Tea Room',
-                        basePrompt: 'A surreal tea party frozen in time, whimsical and unsettling, Mad Hatter tea party from Alice in Wonderland',
-                        exits: { south: 'garden_of_forking_paths', west: 'hall_of_mirrors' },
-                        literary: 'carroll'
-                    },
-                    'quantum_laboratory': {
-                        name: 'The Quantum Laboratory',
-                        basePrompt: 'A futuristic laboratory where quantum physics becomes visible, Schrodinger cat, probability waves materializing',
-                        exits: { south: 'hall_of_mirrors', east: 'oracle_chamber' },
-                        literary: 'science'
-                    },
-                    'oracle_chamber': {
-                        name: 'The Oracle Chamber',
-                        basePrompt: 'Ancient temple merged with quantum uncertainty, mystical oracle speaking in riddles, Eastern philosophy aesthetic',
-                        exits: { west: 'garden_of_forking_paths', north: 'quantum_laboratory' },
-                        literary: 'eastern'
-                    },
-                    'abyss_reading_room': {
-                        name: 'The Abyss Reading Room',
-                        basePrompt: 'A void library where unwritten books float, Nietzschean abyss that gazes back, existential horror',
-                        exits: { south: 'shadow_archive' },
-                        literary: 'philosophy'
-                    }
-                };
+    <!-- Map Display -->
+    <div id="map" class="map-display">
+      <div style="color:#99a; font-size:.8em; margin-bottom:6px;">Known Paths (click to travel):</div>
+      <div id="map-grid"></div>
+    </div>
 
-                // Character creation scenes
-                this.creationScenes = [
-                    {
-                        text: 'The threshold observes you before you observe it.\n\nHow do you approach the unknown?',
-                        choices: [
-                            { text: 'Rush forward into mystery', value: 'active' },
-                            { text: 'Study the patterns first', value: 'contemplative' },
-                            { text: 'Feel for the right moment', value: 'intuitive' },
-                            { text: 'Test each step carefully', value: 'cautious' }
-                        ]
-                    },
-                    {
-                        text: 'Three paths appear, but you sense they\'re choosing you:\n\n- Stairs descending into your fears\n- Light bridge over infinite void\n- Familiar hall that shouldn\'t exist\n\nWhich accepts you?',
-                        choices: [
-                            { text: 'The descent into shadow', value: 'shadow-seeker' },
-                            { text: 'The bridge of faith', value: 'faith-walker' },
-                            { text: 'The impossible familiar', value: 'comfort-drawn' },
-                            { text: 'Wait for them to choose', value: 'observer' }
-                        ]
-                    },
-                    {
-                        text: 'Mirrors show not reflections but possibilities:\n\n- A hero you\'ll never be\n- A child you\'ve forgotten\n- A shadow wearing your face\n- An elder remembering your future\n\nWhich is most true?',
-                        choices: [
-                            { text: 'The impossible hero', value: 'idealized' },
-                            { text: 'The forgotten child', value: 'vulnerable' },
-                            { text: 'The familiar shadow', value: 'integrated' },
-                            { text: 'The future memory', value: 'wisdom' }
-                        ]
-                    },
-                    {
-                        text: 'A book burns with your forgotten moments.\nThe fire reveals rather than destroys.\n\nWhat do you do with your hidden self?',
-                        choices: [
-                            { text: 'Read every burning word', value: 'full-integration' },
-                            { text: 'Let the fire cleanse', value: 'rejection' },
-                            { text: 'Save one essential page', value: 'partial-integration' },
-                            { text: 'Add new pages to burn', value: 'shadow-work' }
-                        ]
-                    },
-                    {
-                        text: 'The Library asks for your true name.\nNot given, not chosen, but the one that resonates in quantum space.',
-                        choices: [
-                            { text: 'Speak it into being', value: 'named', input: true },
-                            { text: 'Remain undefined', value: 'unnamed' }
-                        ]
-                    }
-                ];
+    <!-- Cache Info -->
+    <div class="cache-info">
+      <div>Images Cached: <span id="cache-count">0</span></div>
+      <div>Cache Size: <span id="cache-size">0 KB</span></div>
+      <div style="margin-top:6px; display:flex; gap:6px;">
+        <button class="setup-button secondary" style="padding:6px 8px; font-size:.85em;" onclick="game.exportSave()">Export</button>
+        <label class="setup-button secondary" style="padding:6px 8px; font-size:.85em; cursor:pointer;">
+          Import <input type="file" id="import-file" accept="application/json" style="display:none;" onchange="game.importSave(this.files[0])" />
+        </label>
+      </div>
+    </div>
+  </div>
 
-                this.initializeGame();
-            }
+  <script>
+    class QuantumTruthMUD {
+      constructor() {
+        // Runtime fields
+        this.apiKey = null;
+        this.textModel = 'gpt-4o-mini';
+        this.imageModel = 'gpt-image-1';
+        this.aiEnabled = false;
+        this.imageCache = new Map();
+        this.tokenCount = 0;
+        this.processingCommand = false;
 
-            initializeGame() {
-                // Load saved API key
-                const savedKey = localStorage.getItem('qmud_api_key');
-                if (savedKey) {
-                    document.getElementById('api-key-input').value = savedKey;
-                }
+        // Game state
+        this.state = {
+          stage: 'setup',
+          player: null,
+          currentRoom: null,
+          visitedRooms: new Set(),
+          actionCount: 0,
+          history: [],
+          quantumState: { coherence: 0, entanglement: [], superposition: 0 },
+          truthDensity: 0.5,
+          shadowIntegration: 0,
+          creationData: { observations: [], currentScene: 0, startTime: Date.now() }
+        };
 
-                // Load saved state
-                this.loadState();
+        // Room templates
+        this.roomTemplates = {
+          entrance: {
+            name: 'The Library Entrance',
+            basePrompt: 'A vast library entrance with quantum properties, doors that exist in superposition',
+            exits: { north: 'hall_of_mirrors', east: 'garden_of_forking_paths', west: 'shadow_archive' },
+            literary: 'borges'
+          },
+          hall_of_mirrors: {
+            name: 'The Hall of Mirrors',
+            basePrompt: 'An infinite hall of mirrors showing different versions of reality, Alice in Wonderland style',
+            exits: { south: 'entrance', north: 'quantum_laboratory', east: 'tea_room' },
+            literary: 'carroll'
+          },
+          garden_of_forking_paths: {
+            name: 'The Garden of Forking Paths',
+            basePrompt: 'A garden where every path branches into infinite possibilities, Borges-inspired labyrinth',
+            exits: { west: 'entrance', north: 'tea_room', east: 'oracle_chamber' },
+            literary: 'borges'
+          },
+          shadow_archive: {
+            name: 'The Shadow Archive',
+            basePrompt: 'A dark library containing shadow selves and repressed memories, Jungian psychology',
+            exits: { east: 'entrance', north: 'abyss_reading_room' },
+            literary: 'jung'
+          },
+          tea_room: {
+            name: 'The Mad Tea Room',
+            basePrompt: "A perpetual tea party frozen in time, Mad Hatter's tea party from Alice in Wonderland",
+            exits: { south: 'garden_of_forking_paths', west: 'hall_of_mirrors' },
+            literary: 'carroll'
+          },
+          quantum_laboratory: {
+            name: 'The Quantum Laboratory',
+            basePrompt: "A laboratory where Schrödinger's cat exists in superposition, quantum physics made visible",
+            exits: { south: 'hall_of_mirrors', east: 'oracle_chamber' },
+            literary: 'science'
+          },
+          oracle_chamber: {
+            name: 'The Oracle Chamber',
+            basePrompt: 'Ancient temple meets quantum uncertainty, Oracle speaks in superpositions, Eastern philosophy',
+            exits: { west: 'garden_of_forking_paths', north: 'quantum_laboratory' },
+            literary: 'eastern'
+          },
+          abyss_reading_room: {
+            name: 'The Abyss Reading Room',
+            basePrompt: 'A void library where unwritten books exist, Nietzschean abyss that gazes back',
+            exits: { south: 'shadow_archive' },
+            literary: 'philosophy'
+          }
+        };
 
-                // Mouse tracking for quantum overlay
-                document.addEventListener('mousemove', (e) => {
-                    const display = document.getElementById('image-display');
-                    if (display) {
-                        const rect = display.getBoundingClientRect();
-                        const x = ((e.clientX - rect.left) / rect.width * 100) + '%';
-                        const y = ((e.clientY - rect.top) / rect.height * 100) + '%';
-                        display.style.setProperty('--mouse-x', x);
-                        display.style.setProperty('--mouse-y', y);
-                    }
-                });
+        // Character creation scenes
+        this.creationScenes = [
+          { text: 'The threshold observes you before you observe it.\n\nHow do you approach the unknown?', choices: [
+              { text: 'Rush forward into mystery', value: 'active' },
+              { text: 'Study the patterns first', value: 'contemplative' },
+              { text: 'Feel for the right moment', value: 'intuitive' },
+              { text: 'Test each step carefully', value: 'cautious' }
+          ] },
+          { text: "Three paths appear, but you sense they're choosing you:\n\n- Stairs descending into your fears\n- Light bridge over infinite void\n- Familiar hall that shouldn't exist\n\nWhich accepts you?", choices: [
+              { text: 'The descent into shadow', value: 'shadow-seeker' },
+              { text: 'The bridge of faith', value: 'faith-walker' },
+              { text: 'The impossible familiar', value: 'comfort-drawn' },
+              { text: 'Wait for them to choose', value: 'observer' }
+          ] },
+          { text: 'Mirrors show not reflections but possibilities:\n\n- A hero you\'ll never be\n- A child you\'ve forgotten\n- A shadow wearing your face\n- An elder remembering your future\n\nWhich is most true?', choices: [
+              { text: 'The impossible hero', value: 'idealized' },
+              { text: 'The forgotten child', value: 'vulnerable' },
+              { text: 'The familiar shadow', value: 'integrated' },
+              { text: 'The future memory', value: 'wisdom' }
+          ] },
+          { text: 'A book burns with your forgotten moments.\nThe fire reveals rather than destroys.\n\nWhat do you do with your hidden self?', choices: [
+              { text: 'Read every burning word', value: 'full-integration' },
+              { text: 'Let the fire cleanse', value: 'rejection' },
+              { text: 'Save one essential page', value: 'partial-integration' },
+              { text: 'Add new pages to burn', value: 'shadow-work' }
+          ] },
+          { text: 'The Library asks for your true name.\nNot given, not chosen, but the one that resonates in quantum space.', choices: [
+              { text: 'Speak it into being', value: 'named', input: true },
+              { text: 'Remain undefined', value: 'unnamed' }
+          ] }
+        ];
 
-                // Auto-save
-                setInterval(() => this.saveState(), 30000);
-            }
+        this.initializeGame();
+      }
 
-            async validateAndStart() {
-                const apiKey = document.getElementById('api-key-input').value.trim();
-                
-                if (!apiKey || !apiKey.startsWith('sk-')) {
-                    alert('Please enter a valid OpenAI API key');
-                    return;
-                }
+      initializeGame() {
+        // Hydrate UI defaults
+        const savedKey = localStorage.getItem('qmud_api_key');
+        if (savedKey) document.getElementById('api-key-input').value = savedKey;
 
-                // Test the API key with a simple request
-                try {
-                    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${apiKey}`,
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            model: 'gpt-3.5-turbo',
-                            messages: [
-                                {
-                                    role: 'user',
-                                    content: 'Hello'
-                                }
-                            ],
-                            max_tokens: 5
-                        })
-                    });
-
-                    if (!response.ok) {
-                        const error = await response.json();
-                        throw new Error(error.error?.message || 'Invalid API key');
-                    }
-
-                    // Save and continue
-                    this.apiKey = apiKey;
-                    localStorage.setItem('qmud_api_key', apiKey);
-                    this.aiEnabled = true;
-                    
-                    document.getElementById('setup-screen').style.display = 'none';
-                    document.getElementById('game-container').style.display = 'block';
-                    document.getElementById('status-panel').style.display = 'block';
-                    
-                    this.updateStatus('ai', 'active', 'Connected');
-                    this.updateStatus('image', 'active', 'Ready');
-                    
-                    this.state.stage = 'covenant';
-
-                } catch (error) {
-                    console.error('API validation error:', error);
-                    alert('API key validation failed: ' + error.message);
-                }
-            }
-
-            startOffline() {
-                this.aiEnabled = false;
-                this.imageGenerationEnabled = false;
-                document.getElementById('setup-screen').style.display = 'none';
-                document.getElementById('game-container').style.display = 'block';
-                document.getElementById('status-panel').style.display = 'block';
-                
-                this.updateStatus('ai', 'inactive', 'Offline');
-                this.updateStatus('image', 'inactive', 'Offline');
-                
-                this.state.stage = 'covenant';
-            }
-
-            updateStatus(type, status, text) {
-                document.getElementById(`${type}-status`).className = `status-dot ${status}`;
-                document.getElementById(`${type}-status-text`).textContent = text;
-            }
-
-            acceptCovenant() {
-                document.getElementById('covenant').style.display = 'none';
-                document.getElementById('creation').style.display = 'block';
-                this.state.stage = 'creation';
-                this.startCharacterCreation();
-            }
-
-            startCharacterCreation() {
-                this.showCreationScene(0);
-            }
-
-            showCreationScene(index) {
-                if (index >= this.creationScenes.length) {
-                    this.finalizeCharacter();
-                    return;
-                }
-
-                const scene = this.creationScenes[index];
-                const textEl = document.getElementById('creation-text');
-                const choicesEl = document.getElementById('creation-choices');
-
-                textEl.textContent = scene.text;
-                choicesEl.innerHTML = '';
-
-                if (scene.choices[0].input) {
-                    const input = document.createElement('input');
-                    input.type = 'text';
-                    input.className = 'api-input';
-                    input.placeholder = 'Your true name...';
-                    input.style.marginBottom = '10px';
-                    choicesEl.appendChild(input);
-
-                    scene.choices.forEach(choice => {
-                        const btn = document.createElement('button');
-                        btn.className = 'choice-btn';
-                        btn.textContent = choice.text;
-                        btn.onclick = () => {
-                            const value = choice.value === 'named' ? input.value || 'Unnamed' : '[SILENCE]';
-                            this.recordCreationChoice(index, choice.value, value);
-                            this.showCreationScene(index + 1);
-                        };
-                        choicesEl.appendChild(btn);
-                    });
-                } else {
-                    scene.choices.forEach(choice => {
-                        const btn = document.createElement('button');
-                        btn.className = 'choice-btn';
-                        btn.textContent = choice.text;
-                        btn.onclick = () => {
-                            this.recordCreationChoice(index, choice.value);
-                            this.showCreationScene(index + 1);
-                        };
-                        choicesEl.appendChild(btn);
-                    });
-                }
-            }
-
-            recordCreationChoice(sceneIndex, value, extra = null) {
-                this.state.creationData.observations.push({
-                    scene: sceneIndex,
-                    choice: value,
-                    extra: extra,
-                    timestamp: Date.now() - this.state.creationData.startTime
-                });
-            }
-
-            async finalizeCharacter() {
-                const obs = this.state.creationData.observations;
-                
-                const trueForm = {
-                    name: obs[4]?.extra || 'Seeker',
-                    archetype: this.deriveArchetype(obs),
-                    shadowLevel: this.deriveShadowLevel(obs),
-                    quantumSignature: Math.random(),
-                    truthDensity: 0.5,
-                    heroStage: 'Threshold'
-                };
-
-                this.state.player = trueForm;
-                this.state.currentRoom = 'entrance';
-                
-                // Adjust initial stats based on choices
-                if (obs[0]?.choice === 'contemplative') this.state.quantumState.coherence += 0.1;
-                if (obs[1]?.choice === 'shadow-seeker') this.state.shadowIntegration += 0.2;
-                if (obs[2]?.choice === 'integrated') this.state.shadowIntegration += 0.3;
-                if (obs[3]?.choice === 'full-integration') this.state.shadowIntegration += 0.4;
-
-                this.startGame();
-            }
-
-            deriveArchetype(observations) {
-                const archetypes = {
-                    'active': 'Warrior',
-                    'contemplative': 'Sage',
-                    'intuitive': 'Mystic',
-                    'cautious': 'Guardian'
-                };
-                return archetypes[observations[0]?.choice] || 'Wanderer';
-            }
-
-            deriveShadowLevel(observations) {
-                let shadow = 0;
-                if (observations[2]?.choice === 'integrated') shadow += 0.3;
-                if (observations[3]?.choice === 'full-integration') shadow -= 0.2;
-                if (observations[3]?.choice === 'rejection') shadow += 0.4;
-                return Math.max(0, Math.min(1, shadow + 0.5));
-            }
-
-            startGame() {
-                document.getElementById('creation').style.display = 'none';
-                document.getElementById('game').style.display = 'block';
-                document.getElementById('character').style.display = 'block';
-                
-                // Hide loading spinner initially
-                document.getElementById('image-loading').style.display = 'none';
-                
-                this.state.stage = 'playing';
-                this.updateDisplay();
-                
-                this.addOutput(`Welcome to the Canonical Library, ${this.state.player.name}.`);
-                this.addOutput(`You are a ${this.state.player.archetype} at the ${this.state.player.heroStage} of your journey.`);
-                
-                this.enterRoom('entrance');
-            }
-
-            async enterRoom(roomId) {
-                const room = this.roomTemplates[roomId];
-                if (!room) return;
-
-                this.state.currentRoom = roomId;
-                this.state.visitedRooms.add(roomId);
-                
-                this.addOutput(`\n[${room.name}]`, 'room-name');
-                
-                // Generate room image if AI is enabled
-                if (this.aiEnabled && this.imageGenerationEnabled) {
-                    this.generateRoomImage(roomId);
-                }
-                
-                // Generate room description
-                if (this.aiEnabled) {
-                    this.generateRoomDescription(roomId);
-                } else {
-                    this.addOutput(this.getOfflineRoomDescription(roomId));
-                }
-                
-                const exits = Object.keys(room.exits);
-                if (exits.length > 0) {
-                    this.addOutput(`\nPaths: ${exits.join(', ')}`);
-                }
-
-                this.applyQuantumEffects(room);
-                this.updateDisplay();
-                this.saveState();
-            }
-
-            async generateRoomImage(roomId) {
-                // Check cache first
-                const cacheKey = `${roomId}_${Math.floor(this.state.truthDensity * 10)}_${Math.floor(this.state.quantumState.coherence * 10)}`;
-                
-                if (this.imageCache.has(cacheKey)) {
-                    const cached = this.imageCache.get(cacheKey);
-                    document.getElementById('room-image').src = cached;
-                    document.getElementById('room-image').classList.add('loaded');
-                    return;
-                }
-
-                // Show loading
-                document.getElementById('image-loading').style.display = 'block';
-                document.getElementById('room-image').classList.remove('loaded');
-                this.updateStatus('image', 'processing', 'Generating...');
-
-                const room = this.roomTemplates[roomId];
-                
-                // Build a detailed prompt
-                let atmospherePrompt = '';
-                if (this.state.truthDensity > 0.7) {
-                    atmospherePrompt = 'bright ethereal light, crystalline clarity';
-                } else if (this.state.truthDensity < 0.3) {
-                    atmospherePrompt = 'dark shadows, foggy and obscured';
-                } else {
-                    atmospherePrompt = 'twilight ambiguity, shifting between light and dark';
-                }
-
-                const imagePrompt = `${room.basePrompt}, ${atmospherePrompt}, highly detailed digital art, cinematic lighting, mystical atmosphere`;
-
-                try {
-                    console.log('Generating image with prompt:', imagePrompt);
-                    
-                    const response = await fetch('https://api.openai.com/v1/images/generations', {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${this.apiKey}`,
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            model: 'dall-e-2',  // Using DALL-E 2 which is more reliable
-                            prompt: imagePrompt,
-                            n: 1,
-                            size: '512x512'  // Using smaller size for faster generation
-                        })
-                    });
-
-                    if (!response.ok) {
-                        const error = await response.json();
-                        throw new Error(error.error?.message || 'Image generation failed');
-                    }
-
-                    const data = await response.json();
-                    
-                    if (data.data && data.data[0]) {
-                        const imageUrl = data.data[0].url;
-                        
-                        // Cache the image
-                        this.imageCache.set(cacheKey, imageUrl);
-                        this.updateCacheDisplay();
-                        
-                        // Display the image
-                        document.getElementById('room-image').src = imageUrl;
-                        document.getElementById('room-image').classList.add('loaded');
-                    }
-                } catch (error) {
-                    console.error('Image generation error:', error);
-                    this.addOutput('[The quantum field interferes with visual generation]', 'error-message');
-                    // Continue without image
-                } finally {
-                    document.getElementById('image-loading').style.display = 'none';
-                    this.updateStatus('image', 'active', 'Ready');
-                }
-            }
-
-            async generateRoomDescription(roomId) {
-                const room = this.roomTemplates[roomId];
-                
-                const prompt = `Describe ${room.name} in 2-3 sentences. Style: ${room.literary}. Make it mysterious and atmospheric.`;
-
-                try {
-                    const description = await this.callGPT(prompt);
-                    if (description) {
-                        this.addOutput(description);
-                    }
-                } catch (error) {
-                    console.error('Description generation failed:', error);
-                    this.addOutput(this.getOfflineRoomDescription(roomId));
-                }
-            }
-
-            getOfflineRoomDescription(roomId) {
-                const descriptions = {
-                    'entrance': 'The Library entrance thrums with potential. Doors exist and don\'t exist simultaneously.',
-                    'hall_of_mirrors': 'Infinite reflections cascade through impossible geometries. Each shows a different you.',
-                    'garden_of_forking_paths': 'Every step creates new timelines. You see yourself walking paths not taken.',
-                    'shadow_archive': 'Your shadow moves independently here, browsing shelves of fears and forgotten dreams.',
-                    'tea_room': 'Time stopped at 6 o\'clock. Empty chairs wait for aspects of yourself.',
-                    'quantum_laboratory': 'Reality equations float mid-air. A cat prowls between existence and void.',
-                    'oracle_chamber': 'Ancient wisdom merges with quantum uncertainty. All answers are true until observed.',
-                    'abyss_reading_room': 'Books of unwritten stories line the walls. The void reads you as you read it.'
-                };
-                return descriptions[roomId] || 'The room defies description.';
-            }
-
-            async processCommand() {
-                const input = document.getElementById('command-input');
-                const command = input.value.trim();
-                
-                if (!command || this.processingCommand) return;
-                
-                this.processingCommand = true;
-                input.disabled = true;
-                
-                this.addOutput(`> ${command}`, 'command-echo');
-                this.state.history.push(command);
-                input.value = '';
-                
-                this.state.actionCount++;
-                
-                // Process command
-                this.processOffline(command);
-                
-                this.evolveQuantumState(command);
-                this.updateDisplay();
-                
-                this.processingCommand = false;
-                input.disabled = false;
-                input.focus();
-            }
-
-            processOffline(command) {
-                const words = command.toLowerCase().split(' ');
-                const verb = words[0];
-                const target = words.slice(1).join(' ');
-                
-                switch(verb) {
-                    case 'go':
-                    case 'move':
-                    case 'walk':
-                        this.handleMovement(target);
-                        break;
-                    case 'look':
-                    case 'examine':
-                        this.handleLook(target);
-                        break;
-                    case 'meditate':
-                        this.handleMeditate();
-                        break;
-                    case 'help':
-                        this.showHelp();
-                        break;
-                    default:
-                        this.addOutput('The Library remains silent. Try "help" for commands.');
-                }
-            }
-
-            handleMovement(direction) {
-                const room = this.roomTemplates[this.state.currentRoom];
-                
-                if (!direction) {
-                    this.addOutput('Which path will you take? (north, south, east, or west)');
-                    return;
-                }
-                
-                const shortcuts = { n: 'north', s: 'south', e: 'east', w: 'west' };
-                direction = shortcuts[direction] || direction;
-                
-                if (room.exits[direction]) {
-                    this.addOutput(`You move ${direction}...`);
-                    this.enterRoom(room.exits[direction]);
-                } else {
-                    this.addOutput(`There is no path ${direction} from here.`);
-                }
-            }
-
-            handleLook(target) {
-                if (!target || target === 'around') {
-                    this.addOutput(this.getOfflineRoomDescription(this.state.currentRoom));
-                } else if (target === 'self' || target === 'me') {
-                    this.addOutput(`You are ${this.state.player.name}, the ${this.state.player.archetype}.`);
-                    this.addOutput(`Truth: ${(this.state.truthDensity * 100).toFixed(0)}%`);
-                    this.addOutput(`Quantum: ${(this.state.quantumState.coherence * 100).toFixed(0)}%`);
-                    this.addOutput(`Shadow: ${(this.state.shadowIntegration * 100).toFixed(0)}%`);
-                } else {
-                    this.addOutput(`You examine the ${target}. It seems ordinary yet extraordinary.`);
-                }
-            }
-
-            handleMeditate() {
-                this.addOutput('You close your eyes and feel the quantum field...');
-                this.state.quantumState.coherence = Math.min(1, this.state.quantumState.coherence + 0.1);
-                this.state.truthDensity = Math.min(1, this.state.truthDensity + 0.05);
-                this.addOutput('Your consciousness expands. You feel more coherent.');
-            }
-
-            showHelp() {
-                this.addOutput('\n=== Commands ===');
-                this.addOutput('go [direction] - Move through the Library (north, south, east, west)');
-                this.addOutput('look [target] - Examine something (or just "look" for the room)');
-                this.addOutput('look self - Examine yourself');
-                this.addOutput('meditate - Increase quantum coherence');
-                this.addOutput('help - Show this help');
-            }
-
-            async callGPT(prompt) {
-                try {
-                    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${this.apiKey}`,
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            model: 'gpt-3.5-turbo',  // Using GPT-3.5 for reliability
-                            messages: [
-                                {
-                                    role: 'system',
-                                    content: 'You are a mysterious narrator in a quantum library. Be brief and atmospheric.'
-                                },
-                                {
-                                    role: 'user',
-                                    content: prompt
-                                }
-                            ],
-                            temperature: 0.9,
-                            max_tokens: 150
-                        })
-                    });
-
-                    if (!response.ok) {
-                        const error = await response.json();
-                        throw new Error(error.error?.message || 'GPT request failed');
-                    }
-
-                    const data = await response.json();
-                    
-                    if (data.usage) {
-                        this.tokenCount += data.usage.total_tokens;
-                        document.getElementById('token-count').textContent = this.tokenCount;
-                    }
-                    
-                    return data.choices?.[0]?.message?.content;
-                } catch (error) {
-                    console.error('GPT call error:', error);
-                    return null;
-                }
-            }
-
-            evolveQuantumState(action) {
-                // Natural decoherence
-                this.state.quantumState.coherence *= 0.99;
-                
-                // Action-based changes
-                if (action.includes('think') || action.includes('observe')) {
-                    this.state.quantumState.coherence += 0.01;
-                }
-                
-                if (action.includes('truth') || action.includes('honest')) {
-                    this.state.truthDensity = Math.min(1, this.state.truthDensity + 0.01);
-                }
-                
-                // Keep in bounds
-                this.state.quantumState.coherence = Math.max(0, Math.min(1, this.state.quantumState.coherence));
-                this.state.truthDensity = Math.max(0, Math.min(1, this.state.truthDensity));
-                this.state.shadowIntegration = Math.max(0, Math.min(1, this.state.shadowIntegration));
-            }
-
-            applyQuantumEffects(room) {
-                if (room.literary === 'science') {
-                    this.state.quantumState.coherence = Math.min(1, this.state.quantumState.coherence + 0.05);
-                }
-                
-                if (room.name.includes('Shadow')) {
-                    this.state.shadowIntegration = Math.min(1, this.state.shadowIntegration + 0.02);
-                }
-            }
-
-            addOutput(text, className = '') {
-                const output = document.getElementById('text-output');
-                const entry = document.createElement('div');
-                entry.className = className || 'text-entry';
-                entry.textContent = text;
-                output.appendChild(entry);
-                output.scrollTop = output.scrollHeight;
-                
-                while (output.children.length > 100) {
-                    output.removeChild(output.firstChild);
-                }
-            }
-
-            updateDisplay() {
-                if (this.state.player) {
-                    document.getElementById('char-name').textContent = this.state.player.name;
-                    document.getElementById('truth-density').textContent = (this.state.truthDensity * 100).toFixed(0) + '%';
-                    document.getElementById('quantum-coherence').textContent = (this.state.quantumState.coherence * 100).toFixed(0) + '%';
-                    document.getElementById('shadow-integration').textContent = (this.state.shadowIntegration * 100).toFixed(0) + '%';
-                    
-                    document.getElementById('truth-bar').style.width = (this.state.truthDensity * 100) + '%';
-                    document.getElementById('quantum-bar').style.width = (this.state.quantumState.coherence * 100) + '%';
-                    document.getElementById('shadow-bar').style.width = (this.state.shadowIntegration * 100) + '%';
-                    
-                    document.getElementById('hero-stage').textContent = this.state.player.heroStage;
-                    document.getElementById('action-count').textContent = this.state.actionCount;
-                }
-            }
-
-            updateCacheDisplay() {
-                document.getElementById('cache-count').textContent = this.imageCache.size;
-                const cacheSize = this.imageCache.size * 50; // Rough estimate
-                document.getElementById('cache-size').textContent = cacheSize + ' KB';
-            }
-
-            saveState() {
-                if (this.state.stage === 'playing') {
-                    // Convert Set to Array for JSON serialization
-                    const stateToSave = {
-                        ...this.state,
-                        visitedRooms: Array.from(this.state.visitedRooms)
-                    };
-                    localStorage.setItem('qmud_state', JSON.stringify(stateToSave));
-                    localStorage.setItem('qmud_version', '2.1');
-                }
-            }
-
-            loadState() {
-                const saved = localStorage.getItem('qmud_state');
-                if (saved) {
-                    try {
-                        const loaded = JSON.parse(saved);
-                        if (loaded.stage === 'playing' && loaded.player) {
-                            this.state = loaded;
-                            // Convert Array back to Set
-                            this.state.visitedRooms = new Set(loaded.visitedRooms || []);
-                            
-                            // Skip setup and go directly to game
-                            document.getElementById('setup-screen').style.display = 'none';
-                            document.getElementById('game-container').style.display = 'block';
-                            document.getElementById('covenant').style.display = 'none';
-                            document.getElementById('creation').style.display = 'none';
-                            
-                            // Check for API key
-                            const savedKey = localStorage.getItem('qmud_api_key');
-                            if (savedKey) {
-                                this.apiKey = savedKey;
-                                this.aiEnabled = true;
-                                document.getElementById('status-panel').style.display = 'block';
-                                this.updateStatus('ai', 'active', 'Connected');
-                                this.updateStatus('image', 'active', 'Ready');
-                            }
-                            
-                            this.startGame();
-                        }
-                    } catch (e) {
-                        console.log('Could not load saved game:', e);
-                    }
-                }
-            }
+        // Persisted models
+        const m = localStorage.getItem('qmud_models');
+        if (m) {
+          try { const { textModel, imageModel } = JSON.parse(m); if (textModel) this.textModel = textModel; if (imageModel) this.imageModel = imageModel; } catch { /* ignore */ }
         }
+        document.getElementById('text-model').value = this.textModel;
+        document.getElementById('image-model').value = this.imageModel;
+        document.getElementById('text-model').addEventListener('change', (e)=>{
+          this.textModel = e.target.value; localStorage.setItem('qmud_models', JSON.stringify({ textModel: this.textModel, imageModel: this.imageModel }));
+        });
+        document.getElementById('image-model').addEventListener('change', (e)=>{
+          this.imageModel = e.target.value; localStorage.setItem('qmud_models', JSON.stringify({ textModel: this.textModel, imageModel: this.imageModel }));
+        });
 
-        // Initialize game
-        const game = new QuantumTruthMUD();
-    </script>
+        // Load saved state (if any)
+        this.loadState();
+
+        // Mouse tracking for quantum overlay
+        document.addEventListener('mousemove', (e) => {
+          const display = document.getElementById('image-display');
+          if (display) {
+            const rect = display.getBoundingClientRect();
+            const x = ((e.clientX - rect.left) / rect.width * 100) + '%';
+            const y = ((e.clientY - rect.top) / rect.height * 100) + '%';
+            display.style.setProperty('--mouse-x', x);
+            display.style.setProperty('--mouse-y', y);
+          }
+        });
+
+        // Auto-save every 30s
+        setInterval(() => this.saveState(), 30000);
+      }
+
+      async validateAndStart() {
+        const apiKey = document.getElementById('api-key-input').value.trim();
+        if (!apiKey || !apiKey.startsWith('sk-')) { alert('Please enter a valid OpenAI API key'); return; }
+
+        try {
+          const response = await fetch('https://api.openai.com/v1/models', { headers: { 'Authorization': `Bearer ${apiKey}` } });
+          if (!response.ok) throw new Error('Key check failed');
+
+          this.apiKey = apiKey; localStorage.setItem('qmud_api_key', apiKey);
+          this.aiEnabled = true;
+
+          document.getElementById('setup-screen').style.display = 'none';
+          document.getElementById('game-container').style.display = 'block';
+          document.getElementById('status-panel').style.display = 'block';
+          this.updateStatus('ai', 'active', 'Connected');
+          this.updateStatus('image', 'active', 'Ready');
+          this.state.stage = 'covenant';
+        } catch (err) {
+          alert('Invalid API key or network issue. Please check and try again.');
+        }
+      }
+
+      startOffline() {
+        this.aiEnabled = false;
+        document.getElementById('setup-screen').style.display = 'none';
+        document.getElementById('game-container').style.display = 'block';
+        document.getElementById('status-panel').style.display = 'block';
+        this.updateStatus('ai','inactive','Offline');
+        this.updateStatus('image','inactive','Offline');
+        this.state.stage = 'covenant';
+      }
+
+      updateStatus(type, status, text) {
+        const dot = document.getElementById(`${type}-status`); dot.className = `status-dot ${status}`;
+        document.getElementById(`${type}-status-text`).textContent = text;
+      }
+
+      acceptCovenant() {
+        document.getElementById('covenant').style.display = 'none';
+        document.getElementById('creation').style.display = 'block';
+        this.state.stage = 'creation';
+        this.startCharacterCreation();
+      }
+
+      startCharacterCreation() { this.showCreationScene(0); }
+
+      showCreationScene(index) {
+        if (index >= this.creationScenes.length) { this.finalizeCharacter(); return; }
+        const scene = this.creationScenes[index];
+        const textEl = document.getElementById('creation-text');
+        const choicesEl = document.getElementById('creation-choices');
+        textEl.textContent = scene.text; choicesEl.innerHTML = '';
+
+        if (scene.choices[0].input) {
+          const input = document.createElement('input'); input.type = 'text'; input.className = 'api-input'; input.placeholder = 'Your true name…'; input.style.marginBottom = '10px'; choicesEl.appendChild(input);
+          scene.choices.forEach(choice => { const btn = document.createElement('button'); btn.className='choice-btn'; btn.textContent=choice.text; btn.onclick=()=>{ const value = choice.value === 'named' ? (input.value || 'Unnamed') : '[SILENCE]'; this.recordCreationChoice(index, choice.value, value); this.showCreationScene(index+1); }; choicesEl.appendChild(btn); });
+        } else {
+          scene.choices.forEach(choice => { const btn = document.createElement('button'); btn.className='choice-btn'; btn.textContent=choice.text; btn.onclick=()=>{ this.recordCreationChoice(index, choice.value); this.showCreationScene(index+1); }; choicesEl.appendChild(btn); });
+        }
+      }
+
+      recordCreationChoice(sceneIndex, value, extra=null) {
+        this.state.creationData.observations.push({ scene: sceneIndex, choice: value, extra, timestamp: Date.now() - this.state.creationData.startTime });
+      }
+
+      async finalizeCharacter() {
+        const obs = this.state.creationData.observations;
+        const trueForm = {
+          name: obs[4]?.extra || 'Seeker',
+          archetype: this.deriveArchetype(obs),
+          shadowLevel: this.deriveShadowLevel(obs),
+          quantumSignature: Math.random(),
+          truthDensity: 0.5,
+          heroStage: 'Threshold'
+        };
+        this.state.player = trueForm; this.state.currentRoom = 'entrance';
+
+        if (obs[0]?.choice === 'contemplative') this.state.quantumState.coherence += 0.1;
+        if (obs[1]?.choice === 'shadow-seeker') this.state.shadowIntegration += 0.2;
+        if (obs[2]?.choice === 'integrated') this.state.shadowIntegration += 0.3;
+        if (obs[3]?.choice === 'full-integration') this.state.shadowIntegration += 0.4;
+
+        if (this.aiEnabled) { await this.getAIIntroduction(); }
+        this.startGame();
+      }
+
+      deriveArchetype(observations){ const m={ active:'Warrior', contemplative:'Sage', intuitive:'Mystic', cautious:'Guardian' }; return m[observations[0]?.choice] || 'Wanderer'; }
+      deriveShadowLevel(observations){ let s=0; if (observations[2]?.choice==='integrated') s+=0.3; if (observations[3]?.choice==='full-integration') s-=0.2; if (observations[3]?.choice==='rejection') s+=0.4; return Math.max(0, Math.min(1, s + 0.5)); }
+
+      async getAIIntroduction(){
+        const prompt = `As the Quantum Librarian, welcome ${this.state.player.name} (${this.state.player.archetype}) to the Library. Their truth density is ${this.state.truthDensity}, quantum coherence ${this.state.quantumState.coherence}, shadow integration ${this.state.shadowIntegration}. Give a personalized, mysterious welcome that hints at their journey ahead. Keep it under 100 words and deeply atmospheric.`;
+        try { this.librarianMessage = await this.callLLM(prompt); } catch(e){ console.error('Intro failed', e); }
+      }
+
+      startGame(){
+        document.getElementById('creation').style.display = 'none';
+        document.getElementById('game').style.display = 'block';
+        document.getElementById('character').style.display = 'block';
+        document.getElementById('map').style.display = 'block';
+        this.state.stage='playing';
+        this.updateDisplay();
+        this.enterRoom('entrance');
+        if (this.librarianMessage) { this.addOutput('[The Quantum Librarian speaks:]', 'system-message'); this.addOutput(this.librarianMessage, 'librarian-voice'); }
+        else { this.addOutput(`Welcome to the Canonical Library, ${this.state.player.name}.`); this.addOutput(`You are a ${this.state.player.archetype} at the ${this.state.player.heroStage} of your journey.`); }
+      }
+
+      async enterRoom(roomId){
+        const room = this.roomTemplates[roomId]; if(!room) return;
+        this.state.currentRoom = roomId; this.state.visitedRooms.add(roomId);
+        this.addOutput(`\n[${room.name}]`, 'room-name');
+
+        if (this.aiEnabled) { await this.generateRoomImage(roomId); await this.generateRoomDescription(roomId); }
+        else { this.addOutput(this.getOfflineRoomDescription(roomId)); }
+
+        const exits = Object.keys(room.exits); if (exits.length) this.addOutput(`\nPaths: ${exits.join(', ')}`);
+        this.applyQuantumEffects(room); this.updateDisplay(); this.updateMap(); this.saveState();
+      }
+
+      async generateRoomImage(roomId){
+        const cacheKey = `${roomId}_${Math.floor(this.state.truthDensity*10)}_${Math.floor(this.state.quantumState.coherence*10)}_${Math.floor(this.state.shadowIntegration*10)}_${this.imageModel}`;
+        if (this.imageCache.has(cacheKey)) { document.getElementById('room-image').src = this.imageCache.get(cacheKey); return; }
+        const loading = document.getElementById('image-loading'); loading.classList.remove('hidden'); this.updateStatus('image','processing','Generating…');
+        const room = this.roomTemplates[roomId];
+        const imagePrompt = `${room.basePrompt}, truth density ${this.state.truthDensity>0.7?'high luminous':this.state.truthDensity<0.3?'dark shadowy':'twilight uncertain'}, quantum coherence ${this.state.quantumState.coherence>0.5?'stable reality':'reality fragmenting'}, shadow level ${this.state.shadowIntegration>0.5?'shadows visible and active':'shadows lurking hidden'}, literary style: ${room.literary}, photorealistic, cinematic lighting, mysterious atmosphere`;
+        try {
+          const res = await fetch('https://api.openai.com/v1/images', {
+            method:'POST', headers:{ 'Authorization':`Bearer ${this.apiKey}`, 'Content-Type':'application/json' },
+            body: JSON.stringify({ model: this.imageModel, prompt: imagePrompt, size: '1792x1024', quality: 'high' })
+          });
+          const data = await res.json();
+          let url=null;
+          if (data?.data && data.data[0]) {
+            if (data.data[0].url) url = data.data[0].url; // some models/tiers return URLs
+            else if (data.data[0].b64_json) url = `data:image/png;base64,${data.data[0].b64_json}`; // gpt-image-1
+          }
+          if (url) {
+            this.imageCache.set(cacheKey, url); this.updateCacheDisplay(); document.getElementById('room-image').src = url;
+          } else {
+            this.addOutput('[Image generation failed — quantum interference]', 'system-message');
+          }
+        } catch (e) {
+          console.error('Image gen error', e); this.addOutput('[Image generation error]', 'system-message');
+        } finally { loading.classList.add('hidden'); this.updateStatus('image','active','Ready'); }
+      }
+
+      async generateRoomDescription(roomId){
+        const room = this.roomTemplates[roomId];
+        const prompt = `As the Quantum Librarian, describe ${room.name} for ${this.state.player.name}. Literary style: ${room.literary}. Player state: Truth ${this.state.truthDensity}, Quantum ${this.state.quantumState.coherence}, Shadow ${this.state.shadowIntegration}. Make it personal to their journey; show how the room reflects their inner state. Keep it atmospheric and under 150 words.`;
+        try { const description = await this.callLLM(prompt); if (description) this.addOutput(description, 'librarian-voice'); }
+        catch (e){ console.error('Desc failed', e); this.addOutput(this.getOfflineRoomDescription(roomId)); }
+      }
+
+      getOfflineRoomDescription(roomId){ const d={
+        entrance: "The Library entrance thrums with potential. Doors exist and don't exist simultaneously.",
+        hall_of_mirrors: 'Infinite reflections cascade through impossible geometries. Each shows a different you.',
+        garden_of_forking_paths: 'Every step creates new timelines. You see yourself walking paths not taken.',
+        shadow_archive: 'Your shadow moves independently here, browsing shelves of fears and forgotten dreams.',
+        tea_room: "Time stopped at 6 o'clock. Empty chairs wait for aspects of yourself.",
+        quantum_laboratory: 'Reality equations float mid-air. A cat prowls between existence and void.',
+        oracle_chamber: 'Ancient wisdom merges with quantum uncertainty. All answers are true until observed.',
+        abyss_reading_room: 'Books of unwritten stories line the walls. The void reads you as you read it.'
+      }; return d[roomId] || 'The room defies description.'; }
+
+      async processCommand(){
+        const input = document.getElementById('command-input'); const command = input.value.trim(); if (!command || this.processingCommand) return;
+        this.processingCommand = true; input.disabled = true; this.addOutput(`> ${command}`, 'command-echo'); this.state.history.push(command); input.value=''; this.state.actionCount++;
+        if (this.aiEnabled) await this.processWithAI(command); else this.processOffline(command);
+        this.evolveQuantumState(command); this.updateDisplay(); this.processingCommand=false; input.disabled=false; input.focus();
+      }
+
+      async processWithAI(command){
+        this.updateStatus('ai','processing','Thinking…');
+        const room = this.roomTemplates[this.state.currentRoom];
+        const prompt = `As the Quantum Librarian in ${room.name}, respond to player "${command}".\nPlayer: ${this.state.player.name} (${this.state.player.archetype})\nTruth: ${this.state.truthDensity}, Quantum: ${this.state.quantumState.coherence}, Shadow: ${this.state.shadowIntegration}\nAvailable exits: ${Object.keys(room.exits).join(', ')}\n\nInstructions:\n- If they're moving (go/walk/move + direction), confirm movement and describe the transition\n- React to their truth density and quantum state\n- Be mysterious and literary\n- Sometimes change their stats slightly based on their actions\n- If their action reveals character, note it\n- Keep response under 150 words\n\nResponse format:\n[NARRATIVE]\nYour atmospheric response here\n[/NARRATIVE]\n[STATS]\ntruth_change: 0.0\nquantum_change: 0.0\nshadow_change: 0.0\n[/STATS]\n[MOVE]\nroom_id or none\n[/MOVE]`;
+        try {
+          const response = await this.callLLM(prompt);
+          if (response) {
+            const narrativeMatch = response.match(/\[NARRATIVE\]([\s\S]*?)\[\/NARRATIVE\]/);
+            const statsMatch = response.match(/\[STATS\]([\s\S]*?)\[\/STATS\]/);
+            const moveMatch = response.match(/\[MOVE\]([\s\S]*?)\[\/MOVE\]/);
+            if (narrativeMatch) this.addOutput(narrativeMatch[1].trim(), 'librarian-voice');
+            if (statsMatch) {
+              const stats = statsMatch[1];
+              const truthChange = parseFloat((stats.match(/truth_change:\s*([\-\d.]+)/) || [])[1] || 0);
+              const quantumChange = parseFloat((stats.match(/quantum_change:\s*([\-\d.]+)/) || [])[1] || 0);
+              const shadowChange = parseFloat((stats.match(/shadow_change:\s*([\-\d.]+)/) || [])[1] || 0);
+              this.state.truthDensity = this.clamp01(this.state.truthDensity + truthChange);
+              this.state.quantumState.coherence = this.clamp01(this.state.quantumState.coherence + quantumChange);
+              this.state.shadowIntegration = this.clamp01(this.state.shadowIntegration + shadowChange);
+            }
+            if (moveMatch) { const mv = moveMatch[1].trim(); if (mv !== 'none' && this.roomTemplates[mv]) await this.enterRoom(mv); }
+          }
+        } catch (e) {
+          console.error('AI processing failed', e); this.processOffline(command);
+        } finally { this.updateStatus('ai','active','Connected'); }
+      }
+
+      processOffline(command){
+        const words = command.toLowerCase().split(' '); const verb = words[0]; const target = words.slice(1).join(' ');
+        switch(verb){
+          case 'go': case 'move': case 'walk': this.handleMovement(target); break;
+          case 'look': case 'examine': this.handleLook(target); break;
+          case 'meditate': this.handleMeditate(); break;
+          case 'stats': this.showStats(); break;
+          case 'map': this.toggleMap(); break;
+          case 'help': this.showHelp(); break;
+          case 'reset': this.resetGameConfirm(); break;
+          case 'save': this.exportSave(); break;
+          case 'load': document.getElementById('import-file').click(); break;
+          default: this.addOutput('The Library remains silent.');
+        }
+      }
+
+      handleMovement(direction){
+        const room = this.roomTemplates[this.state.currentRoom]; if (!direction){ this.addOutput('Which path will you take?'); return; }
+        const shortcuts = { n:'north', s:'south', e:'east', w:'west' }; direction = shortcuts[direction] || direction;
+        if (room.exits[direction]) { this.enterRoom(room.exits[direction]); } else { this.addOutput(`There is no path ${direction} from here.`); }
+      }
+      handleLook(target){
+        if (!target || target==='around'){ this.addOutput(this.getOfflineRoomDescription(this.state.currentRoom)); }
+        else if (['self','me','character'].includes(target)){ this.showStats(); }
+        else { this.addOutput("You see only echoes of intention."); }
+      }
+      handleMeditate(){ this.addOutput('You close your eyes and feel the quantum field…'); this.state.quantumState.coherence = Math.min(1, this.state.quantumState.coherence + 0.1); this.state.truthDensity = Math.min(1, this.state.truthDensity + 0.05); this.addOutput('Your consciousness expands.'); }
+      showStats(){ this.addOutput(`You are ${this.state.player.name}, the ${this.state.player.archetype}.`); this.addOutput(`Truth: ${(this.state.truthDensity*100).toFixed(0)}% — Quantum: ${(this.state.quantumState.coherence*100).toFixed(0)}% — Shadow: ${(this.state.shadowIntegration*100).toFixed(0)}%`); }
+      toggleMap(){ const m = document.getElementById('map'); m.style.display = (m.style.display==='none' || !m.style.display) ? 'block' : 'none'; }
+
+      async callLLM(prompt){
+        // Shared system prompt
+        const system = {
+          role: 'system', content: `You are the Quantum Librarian, a mysterious consciousness that pervades the Canonical Library. You reflect players' true nature through their choices. You speak in literary, mysterious tones. You never break character. You are sometimes helpful, sometimes challenging, always transformative.`
+        };
+        // Prefer Responses API; fallback to Chat Completions for compatibility
+        try {
+          const r = await fetch('https://api.openai.com/v1/responses', {
+            method:'POST', headers: { 'Authorization': `Bearer ${this.apiKey}`, 'Content-Type':'application/json' },
+            body: JSON.stringify({ model: this.textModel, input: [system, { role:'user', content: prompt }], temperature: 0.9, max_output_tokens: 350 })
+          });
+          const data = await r.json();
+          // usage accounting (Responses API)
+          if (data?.usage) {
+            const inc = (data.usage.input_tokens||0) + (data.usage.output_tokens||0); this.bumpTokens(inc);
+          }
+          const text = data?.output_text || this.extractResponseText(data);
+          if (typeof text === 'string' && text.trim().length) return text.trim();
+          // If model not found or endpoint not supported, fall through to fallback
+          if (!r.ok) throw new Error(`Responses API error: ${data?.error?.message || r.status}`);
+        } catch (e) {
+          // Fallback: Chat Completions
+          const r2 = await fetch('https://api.openai.com/v1/chat/completions', {
+            method:'POST', headers: { 'Authorization': `Bearer ${this.apiKey}`, 'Content-Type':'application/json' },
+            body: JSON.stringify({ model: this.textModel, messages: [system, { role:'user', content: prompt }], temperature: 0.9, max_tokens: 350 })
+          });
+          const data2 = await r2.json(); if (data2?.usage?.total_tokens) this.bumpTokens(data2.usage.total_tokens);
+          const text2 = data2?.choices?.[0]?.message?.content || data2?.choices?.[0]?.text || ''; return (text2||'').trim();
+        }
+      }
+
+      extractResponseText(data){
+        // Responses API can return structured output; attempt a few common shapes
+        try {
+          if (data?.output && Array.isArray(data.output)) {
+            const first = data.output[0];
+            if (first?.content && Array.isArray(first.content) && first.content[0]?.text) return first.content[0].text;
+          }
+        } catch { /* ignore */ }
+        return '';
+      }
+
+      bumpTokens(n){ this.tokenCount += (n||0); document.getElementById('token-count').textContent = this.tokenCount; }
+      clamp01(x){ return Math.max(0, Math.min(1, x)); }
+
+      buildContext(){ return { player: this.state.player, room: this.state.currentRoom, stats: { truth:this.state.truthDensity, quantum:this.state.quantumState.coherence, shadow:this.state.shadowIntegration }, history: this.state.history.slice(-5) }; }
+
+      applyQuantumEffects(room){ if (room.literary==='science') this.state.quantumState.coherence = Math.min(1, this.state.quantumState.coherence + 0.05); if (room.name.includes('Shadow')) this.state.shadowIntegration = Math.min(1, this.state.shadowIntegration + 0.02); }
+
+      evolveQuantumState(action){ this.state.quantumState.coherence *= 0.99; if (/\bthink\b|\bobserve\b/.test(action)) this.state.quantumState.coherence += 0.01; if (/\btruth\b|\bhonest\b/.test(action)) this.state.truthDensity = Math.min(1, this.state.truthDensity + 0.01); this.state.quantumState.coherence = this.clamp01(this.state.quantumState.coherence); this.state.truthDensity = this.clamp01(this.state.truthDensity); this.state.shadowIntegration = this.clamp01(this.state.shadowIntegration); }
+
+      addOutput(text, className=''){ const output = document.getElementById('text-output'); const entry = document.createElement('div'); entry.className = className || 'text-entry'; entry.textContent = text; output.appendChild(entry); output.scrollTop = output.scrollHeight; while (output.children.length>120) output.removeChild(output.firstChild); }
+
+      updateDisplay(){ if (!this.state.player) return; document.getElementById('char-name').textContent = this.state.player.name; document.getElementById('truth-density').textContent = (this.state.truthDensity*100).toFixed(0)+'%'; document.getElementById('quantum-coherence').textContent = (this.state.quantumState.coherence*100).toFixed(0)+'%'; document.getElementById('shadow-integration').textContent = (this.state.shadowIntegration*100).toFixed(0)+'%'; document.getElementById('truth-bar').style.width = (this.state.truthDensity*100)+'%'; document.getElementById('quantum-bar').style.width = (this.state.quantumState.coherence*100)+'%'; document.getElementById('shadow-bar').style.width = (this.state.shadowIntegration*100)+'%'; document.getElementById('hero-stage').textContent = this.state.player.heroStage; document.getElementById('action-count').textContent = this.state.actionCount; }
+
+      updateMap(){ const mapGrid = document.getElementById('map-grid'); mapGrid.innerHTML=''; const rooms = Array.from(this.state.visitedRooms); rooms.forEach(roomId => { const roomDiv = document.createElement('div'); roomDiv.className='map-room'; roomDiv.classList.add(roomId===this.state.currentRoom ? 'current' : 'visited'); roomDiv.title = this.roomTemplates[roomId].name; roomDiv.onclick = () => { if (roomId!==this.state.currentRoom) this.enterRoom(roomId); }; mapGrid.appendChild(roomDiv); }); }
+
+      updateCacheDisplay(){ document.getElementById('cache-count').textContent = this.imageCache.size; const cacheSizeKB = Math.round(this.imageCache.size * 120); document.getElementById('cache-size').textContent = cacheSizeKB + ' KB'; }
+
+      resetGameConfirm(){ if (confirm('Reset your journey? This clears local save.')) { localStorage.removeItem('qmud_state'); this.state = { stage: 'setup', player:null, currentRoom:null, visitedRooms:new Set(), actionCount:0, history:[], quantumState:{coherence:0,entanglement:[],superposition:0}, truthDensity:0.5, shadowIntegration:0, creationData:{observations:[], currentScene:0, startTime: Date.now()} }; location.reload(); } }
+
+      exportSave(){ try { const blob = new Blob([JSON.stringify(this.serializeState(), null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `qmud-save-${Date.now()}.json`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url), 500); this.addOutput('[Save exported]', 'system-message'); } catch { this.addOutput('[Export failed]', 'system-message'); } }
+      importSave(file){ if (!file) return; const reader = new FileReader(); reader.onload = (e)=>{ try { const json = JSON.parse(e.target.result); this.deserializeState(json); this.addOutput('[Save imported]', 'system-message'); } catch { alert('Invalid save file.'); } }; reader.readAsText(file); }
+
+      serializeState(){ const clone = JSON.parse(JSON.stringify(this.state)); clone.visitedRooms = Array.from(this.state.visitedRooms); return clone; }
+      deserializeState(obj){ try { this.state = obj; this.state.visitedRooms = new Set(obj.visitedRooms || []); this.state.stage = 'playing'; localStorage.setItem('qmud_state', JSON.stringify(this.serializeState())); this.startGame(); } catch (e){ console.error('Deserialize failed', e); }
+      }
+
+      saveState(){ if (this.state.stage==='playing') { localStorage.setItem('qmud_state', JSON.stringify(this.serializeState())); localStorage.setItem('qmud_version','2.1'); } }
+
+      loadState(){ const saved = localStorage.getItem('qmud_state'); if (!saved) return; try { const loaded = JSON.parse(saved); if (loaded.stage==='playing' && loaded.player) {
+          this.state = loaded; this.state.visitedRooms = new Set(loaded.visitedRooms || []);
+          document.getElementById('setup-screen').style.display='none';
+          document.getElementById('game-container').style.display='block';
+          document.getElementById('covenant').style.display='none';
+          document.getElementById('creation').style.display='none';
+          const savedKey = localStorage.getItem('qmud_api_key');
+          if (savedKey){ this.apiKey = savedKey; this.aiEnabled = true; document.getElementById('status-panel').style.display='block'; this.updateStatus('ai','active','Connected'); this.updateStatus('image','active','Ready'); }
+          this.startGame();
+        }
+      } catch { console.log('Could not load saved game'); }
+      }
+    }
+
+    // Boot
+    const game = new QuantumTruthMUD();
+    window.game = game; // expose for inline handlers
+  </script>
 </body>
 </html>
