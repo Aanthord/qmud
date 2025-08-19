@@ -13,18 +13,18 @@
   <div id="setup-screen" class="setup-screen">
     <div class="setup-container">
       <h1 class="mirror-text">The Canonical Library</h1>
-      <p style="text-align:center; margin:12px 0 16px; line-height:1.6;">A Quantum Truth MUD powered by AI</p>
+      <p style="text-align:center; margin:12px 0 16px; line-height:1.6;">A Quantum Truth MUD powered by AI & Aterna</p>
 
       <div class="row" style="margin:14px 0 4px; justify-content:space-between;">
         <div style="flex:1;">
           <label style="display:block; margin-bottom:8px;">OpenAI API Key (BYOK):</label>
           <input type="password" id="api-key-input" class="api-input" placeholder="sk-..." value=""/>
-          <p class="tiny">Stored locally and sent only to your API base. For production, use a proxy.</p>
+          <p class="tiny">Stored locally and sent only to your API base (proxy or OpenAI). For production, use a proxy.</p>
         </div>
       </div>
 
       <div class="row" style="gap:12px;">
-        <div style="flex:2;">
+      <div style="flex:2;">
           <label style="display:block; margin:10px 0 6px;">Text Model</label>
           <select id="text-model" class="select-input">
             <option value="gpt-4o-mini" selected>gpt-4o-mini (default)</option>
@@ -40,20 +40,69 @@
         </div>
       </div>
 
-      <!-- NEW: API Base (proxy) -->
+      <!-- OpenAI base (proxy) -->
       <div class="row" style="gap:12px;">
         <div style="flex:1;">
-          <label style="display:block; margin:10px 0 6px;">API Base (optional proxy)</label>
+          <label style="display:block; margin:10px 0 6px;">OpenAI API Base (optional proxy)</label>
           <input id="api-base" class="api-input" placeholder="https://your-worker.workers.dev or /openai" />
-          <p class="tiny">Leave empty to call https://api.openai.com directly.</p>
+          <p class="tiny">Empty → https://api.openai.com</p>
         </div>
       </div>
 
-      <button class="setup-button" onclick="game.validateAndStart()">Enter the Library</button>
-      <button class="setup-button secondary" onclick="game.startOffline()">Play Offline (No AI/Images)</button>
+      <!-- Aterna config -->
+      <div class="row" style="gap:12px; margin-top:8px;">
+        <div style="flex:2;">
+          <label style="display:block; margin:10px 0 6px;">Aterna Base URL</label>
+          <input id="aterna-base" class="api-input" placeholder="https://aterna.example.com" />
+          <p class="tiny">Must allow CORS for your GitHub Pages origin.</p>
+        </div>
+        <div style="flex:2;">
+          <label style="display:block; margin:10px 0 6px;">Aterna Auth (Publish)</label>
+          <input id="aterna-token" class="api-input" placeholder="Bearer ey..." />
+          <p class="tiny">Sent as Authorization for publish requests (optional).</p>
+        </div>
+      </div>
+
+      <div class="row" style="gap:12px;">
+        <div style="flex:1;">
+          <label style="display:block; margin:10px 0 6px;">Publish Path</label>
+          <input id="aterna-publish" class="api-input" placeholder="/api/publish" />
+        </div>
+        <div style="flex:1;">
+          <label style="display:block; margin:10px 0 6px;">Subscribe (SSE) Path</label>
+          <input id="aterna-subscribe" class="api-input" placeholder="/api/subscribe" />
+        </div>
+      </div>
+
+      <div class="row" style="gap:12px;">
+        <div style="flex:1;">
+          <label style="display:block; margin:10px 0 6px;">SSE Token (optional)</label>
+          <input id="aterna-sse-token" class="api-input" placeholder="token-value" />
+        </div>
+        <div style="flex:1;">
+          <label style="display:block; margin:10px 0 6px;">SSE Token Param Name</label>
+          <input id="aterna-sse-token-param" class="api-input" placeholder="token" />
+        </div>
+      </div>
+
+      <div class="row" style="gap:12px; align-items:center;">
+        <label style="display:flex; gap:8px; align-items:center;">
+          <input type="checkbox" id="aterna-enable" />
+          <span>Enable Aterna (multiplayer, saves, combat)</span>
+        </label>
+        <label style="display:flex; gap:8px; align-items:center;">
+          <input type="checkbox" id="aterna-audit" />
+          <span>Mirror events to audit daily topic</span>
+        </label>
+      </div>
+
+      <div class="row" style="gap:12px; margin-top:8px;">
+        <button class="setup-button" onclick="game.validateAndStart()">Enter the Library</button>
+        <button class="setup-button secondary" onclick="game.startOffline()">Play Offline (No AI/Images)</button>
+      </div>
 
       <p style="text-align:center; margin-top:14px;" class="tiny">
-        Get your API key:
+        Get an OpenAI API key:
         <a href="https://platform.openai.com/api-keys" target="_blank" style="color:var(--brand);">OpenAI Platform</a>
       </p>
     </div>
@@ -67,8 +116,9 @@
     <div class="status-item"><button class="setup-button secondary" style="padding:8px 10px; font-size:.9em;" onclick="game.resetGameConfirm()">Reset</button></div>
   </div>
 
-  <!-- Main Game Container (unchanged DOM) -->
+  <!-- Main Game Container -->
   <div id="game-container">
+    <!-- Covenant Screen -->
     <div id="covenant" class="covenant-screen">
       <h1 class="mirror-text">The Mirror Covenant</h1>
       <h2>⚠️ Essential Understanding</h2>
@@ -84,6 +134,7 @@
       </div>
     </div>
 
+    <!-- Character Creation -->
     <div id="creation" class="creation-screen">
       <div class="scene-container">
         <div id="creation-text" class="scene-text"></div>
@@ -91,6 +142,7 @@
       </div>
     </div>
 
+    <!-- Main Game -->
     <div id="game" class="game-screen">
       <div id="image-display">
         <img id="room-image" class="room-image" src="" alt=""/>
@@ -109,6 +161,7 @@
       />
     </div>
 
+    <!-- Character Display -->
     <div id="character" class="character-display" style="display:none;">
       <div style="text-align:center; font-weight:bold; color:#64c8ff; margin-bottom:8px;"><span id="char-name">Unknown</span></div>
       <div style="font-size:.95em;">
@@ -119,17 +172,21 @@
         <div>Shadow: <span id="shadow-integration">0%</span></div>
         <div class="stat-bar"><div class="stat-fill" id="shadow-bar" style="width:0%"></div></div>
         <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--brand);">
+          <div>Insight (Ξ): <span id="insight-count" style="color:#aaf;">0</span></div>
+          <div style="height:6px"></div>
           <div>Stage: <span id="hero-stage" style="color:#aaf;">Threshold</span></div>
           <div>Actions: <span id="action-count" style="color:#aaf;">0</span></div>
         </div>
       </div>
     </div>
 
+    <!-- Map Display -->
     <div id="map" class="map-display">
       <div style="color:#99a; font-size:.8em; margin-bottom:6px;">Known Paths (click to travel):</div>
       <div id="map-grid"></div>
     </div>
 
+    <!-- Cache / Save -->
     <div class="cache-info">
       <div>Images Cached: <span id="cache-count">0</span></div>
       <div>Cache Size: <span id="cache-size">0 KB</span></div>
