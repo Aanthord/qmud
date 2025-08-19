@@ -1,4 +1,4 @@
-// ai.js — OpenAI client (BYOK)
+// ai.js — OpenAI client (BYOK) with queue + backoff + configurable API base
 export class AIClient {
   /**
    * @param {() => string|null} getApiKey
@@ -6,29 +6,71 @@ export class AIClient {
    * @param {() => string} getImageModel
    * @param {(n:number)=>void} bumpTokens
    * @param {(type:'ai'|'image',status:'active'|'inactive'|'processing',text:string)=>void} updateStatus
+   * @param {() => string} getApiBase
    */
-  constructor(getApiKey, getTextModel, getImageModel, bumpTokens, updateStatus) {
+  constructor(getApiKey, getTextModel, getImageModel, bumpTokens, updateStatus, getApiBase) {
     this.getApiKey = getApiKey;
     this.getTextModel = getTextModel;
     this.getImageModel = getImageModel;
     this.bumpTokens = bumpTokens;
     this.updateStatus = updateStatus;
+    this.getApiBase = getApiBase || (() => (localStorage.getItem('qmud_api_base') || 'https://api.openai.com'));
   }
 
-  async callLLM(userPrompt) {
+  // --- queue / backoff ---
+  _inflight = Promise.resolve();
+  _blockedUntil = 0;
+
+  async _enqueue(task) {
+    const run = async () => {
+      const now = Date.now();
+      if (now < this._blockedUntil) {
+        const wait = Math.max(0, this._blockedUntil - now);
+        return { skipped: true, wait };
+      }
+      return task();
+    };
+    this._inflight = this._inflight.then(run, run);
+    return this._inflight;
+  }
+
+  _setBackoff(res) {
+    const retry = Number(res.headers?.get?.('retry-after')) || 0;
+    const ms = retry ? retry * 1000 : 8000;
+    this._blockedUntil = Date.now() + ms;
+  }
+
+  async _doJSON(url, init) {
     const apiKey = this.getApiKey();
     if (!apiKey) throw new Error('No API key');
 
+    return this._enqueue(async () => {
+      init.headers = init.headers || {};
+      if (!init.headers['Authorization']) {
+        init.headers['Authorization'] = `Bearer ${apiKey}`;
+      }
+      const res = await fetch(url, init);
+      let data = null;
+      try { data = await res.clone().json(); } catch {}
+      if (res.status === 429) this._setBackoff(res);
+      return { res, data };
+    });
+  }
+
+  async callLLM(userPrompt) {
     const system = {
       role: 'system',
-      content: `You are the Quantum Librarian, a mysterious consciousness that pervades the Canonical Library. You reflect players' true nature through their choices. You speak in literary, mysterious tones. You never break character. You are sometimes helpful, sometimes challenging, always transformative.`
+      content:
+        'You are the Quantum Librarian, a mysterious consciousness that pervades the Canonical Library. You reflect players\' true nature through their choices. You speak in literary, mysterious tones. You never break character. You are sometimes helpful, sometimes challenging, always transformative.'
     };
 
     this.updateStatus('ai', 'processing', 'Thinking…');
+
+    // Responses API (preferred)
     try {
-      const r = await fetch('https://api.openai.com/v1/responses', {
+      const { res, data } = await this._doJSON(`${this.getApiBase()}/v1/responses`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: this.getTextModel(),
           input: [system, { role: 'user', content: userPrompt }],
@@ -36,19 +78,24 @@ export class AIClient {
           max_output_tokens: 350
         })
       });
-      const data = await r.json();
+
       if (data?.usage) {
         const inc = (data.usage.input_tokens || 0) + (data.usage.output_tokens || 0);
         this.bumpTokens(inc);
       }
+      if (res.status === 429 || data?.error?.type === 'rate_limit_exceeded') {
+        this.updateStatus('ai', 'inactive', 'Rate limited');
+        return '';
+      }
+
       const text = data?.output_text || extractResponsesAPIText(data);
       if (text && text.trim()) return text.trim();
-      if (!r.ok) throw new Error(data?.error?.message || `HTTP ${r.status}`);
+      if (!res.ok) throw new Error(data?.error?.message || `HTTP ${res.status}`);
     } catch {
-      // fallback
-      const r2 = await fetch('https://api.openai.com/v1/chat/completions', {
+      // Fallback: Chat Completions
+      const { res: r2, data: data2 } = await this._doJSON(`${this.getApiBase()}/v1/chat/completions`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: this.getTextModel(),
           messages: [system, { role: 'user', content: userPrompt }],
@@ -56,8 +103,8 @@ export class AIClient {
           max_tokens: 350
         })
       });
-      const data2 = await r2.json();
       if (data2?.usage?.total_tokens) this.bumpTokens(data2.usage.total_tokens);
+      if (r2.status === 429) { this.updateStatus('ai','inactive','Rate limited'); return ''; }
       const txt = data2?.choices?.[0]?.message?.content || data2?.choices?.[0]?.text || '';
       return (txt || '').trim();
     } finally {
@@ -66,14 +113,11 @@ export class AIClient {
   }
 
   async generateImage(imagePrompt) {
-    const apiKey = this.getApiKey();
-    if (!apiKey) return null;
-
     this.updateStatus('image', 'processing', 'Generating…');
     try {
-      const r = await fetch('https://api.openai.com/v1/images', {
+      const { res, data } = await this._doJSON(`${this.getApiBase()}/v1/images`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: this.getImageModel(),
           prompt: imagePrompt,
@@ -81,13 +125,12 @@ export class AIClient {
           quality: 'high'
         })
       });
-      const data = await r.json();
-      let url = null;
+      if (res.status === 429) { this.updateStatus('image','inactive','Rate limited'); return null; }
       if (data?.data && data.data[0]) {
-        if (data.data[0].url) url = data.data[0].url;
-        else if (data.data[0].b64_json) url = `data:image/png;base64,${data.data[0].b64_json}`;
+        if (data.data[0].url) return data.data[0].url;
+        if (data.data[0].b64_json) return `data:image/png;base64,${data.data[0].b64_json}`;
       }
-      return url;
+      return null;
     } catch {
       return null;
     } finally {
