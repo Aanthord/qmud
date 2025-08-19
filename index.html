@@ -19,7 +19,7 @@
         <div style="flex:1;">
           <label style="display:block; margin-bottom:8px;">OpenAI API Key (BYOK):</label>
           <input type="password" id="api-key-input" class="api-input" placeholder="sk-..." value=""/>
-          <p class="tiny">Stored locally and sent only to OpenAI. For production, proxy on your server.</p>
+          <p class="tiny">Stored locally and sent only to your API base. For production, use a proxy.</p>
         </div>
       </div>
 
@@ -37,6 +37,15 @@
           <select id="image-model" class="select-input">
             <option value="gpt-image-1" selected>gpt-image-1</option>
           </select>
+        </div>
+      </div>
+
+      <!-- NEW: API Base (proxy) -->
+      <div class="row" style="gap:12px;">
+        <div style="flex:1;">
+          <label style="display:block; margin:10px 0 6px;">API Base (optional proxy)</label>
+          <input id="api-base" class="api-input" placeholder="https://your-worker.workers.dev or /openai" />
+          <p class="tiny">Leave empty to call https://api.openai.com directly.</p>
         </div>
       </div>
 
@@ -58,9 +67,8 @@
     <div class="status-item"><button class="setup-button secondary" style="padding:8px 10px; font-size:.9em;" onclick="game.resetGameConfirm()">Reset</button></div>
   </div>
 
-  <!-- Main Game Container -->
+  <!-- Main Game Container (unchanged DOM) -->
   <div id="game-container">
-    <!-- Covenant Screen -->
     <div id="covenant" class="covenant-screen">
       <h1 class="mirror-text">The Mirror Covenant</h1>
       <h2>⚠️ Essential Understanding</h2>
@@ -76,7 +84,6 @@
       </div>
     </div>
 
-    <!-- Character Creation -->
     <div id="creation" class="creation-screen">
       <div class="scene-container">
         <div id="creation-text" class="scene-text"></div>
@@ -84,7 +91,6 @@
       </div>
     </div>
 
-    <!-- Main Game -->
     <div id="game" class="game-screen">
       <div id="image-display">
         <img id="room-image" class="room-image" src="" alt=""/>
@@ -103,7 +109,6 @@
       />
     </div>
 
-    <!-- Character Display -->
     <div id="character" class="character-display" style="display:none;">
       <div style="text-align:center; font-weight:bold; color:#64c8ff; margin-bottom:8px;"><span id="char-name">Unknown</span></div>
       <div style="font-size:.95em;">
@@ -120,13 +125,11 @@
       </div>
     </div>
 
-    <!-- Map Display -->
     <div id="map" class="map-display">
       <div style="color:#99a; font-size:.8em; margin-bottom:6px;">Known Paths (click to travel):</div>
       <div id="map-grid"></div>
     </div>
 
-    <!-- Cache Info -->
     <div class="cache-info">
       <div>Images Cached: <span id="cache-count">0</span></div>
       <div>Cache Size: <span id="cache-size">0 KB</span></div>
