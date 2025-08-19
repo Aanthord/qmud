@@ -1,4 +1,4 @@
-// game.js — core gameplay
+// game.js — core gameplay (patched)
 import { clamp01, downloadJSON } from './utils.js';
 import { AIClient } from './ai.js';
 import { loadContent } from './content.js';
@@ -11,8 +11,14 @@ export class QuantumTruthMUD {
     this.imageModel = 'gpt-image-1';
     this.aiEnabled = false;
     this.imageCache = new Map();
+    this._imageInflight = new Set();
+    this.descCache = new Map();
     this.tokenCount = 0;
     this.processingCommand = false;
+
+    // Simple AI cooldown
+    this.lastAIAt = 0;
+    this.minAIIntervalMs = 1500;
 
     // State
     this.state = {
@@ -31,20 +37,20 @@ export class QuantumTruthMUD {
 
     // Content (loaded in init)
     this.roomTemplates = {};
-    this.creationScenes = [];
+    this.creationScenes = {};
 
-    // AI client bound to runtime getters
+    // AI client (with configurable API base)
     this.ai = new AIClient(
       () => this.apiKey,
       () => this.textModel,
       () => this.imageModel,
       (n) => this.bumpTokens(n),
-      (type, status, text) => this.updateStatus(type, status, text)
+      (type, status, text) => this.updateStatus(type, status, text),
+      () => (localStorage.getItem('qmud_api_base') || 'https://api.openai.com')
     );
   }
 
   async init() {
-    // Load content (optionally overridden by rooms.json / scenes.json)
     const content = await loadContent();
     this.roomTemplates = content.rooms;
     this.creationScenes = content.scenes;
@@ -52,6 +58,15 @@ export class QuantumTruthMUD {
     // Hydrate UI defaults
     const savedKey = localStorage.getItem('qmud_api_key');
     if (savedKey) document.getElementById('api-key-input').value = savedKey;
+
+    const savedBase = localStorage.getItem('qmud_api_base') || '';
+    const apiBaseInput = document.getElementById('api-base');
+    if (apiBaseInput) {
+      apiBaseInput.value = savedBase;
+      apiBaseInput.addEventListener('change', e => {
+        localStorage.setItem('qmud_api_base', e.target.value.trim());
+      });
+    }
 
     const m = localStorage.getItem('qmud_models');
     if (m) {
@@ -90,36 +105,28 @@ export class QuantumTruthMUD {
     // Load saved game if present
     this.loadState();
 
-    // Register service worker (optional)
+    // Service worker: tolerate absence
     if ('serviceWorker' in navigator) {
-      try { navigator.serviceWorker.register('./sw.js'); } catch {}
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
     }
   }
 
   // ===== Setup / Start =====
-  async validateAndStart() {
+  validateAndStart() {
+    // No /v1/models ping — avoid extra auth traffic
     const apiKey = document.getElementById('api-key-input').value.trim();
     if (!apiKey || !apiKey.startsWith('sk-')) { alert('Please enter a valid OpenAI API key'); return; }
 
-    try {
-      const response = await fetch('https://api.openai.com/v1/models', {
-        headers: { 'Authorization': `Bearer ${apiKey}` }
-      });
-      if (!response.ok) throw new Error('Key check failed');
+    this.apiKey = apiKey;
+    localStorage.setItem('qmud_api_key', apiKey);
+    this.aiEnabled = true;
 
-      this.apiKey = apiKey;
-      localStorage.setItem('qmud_api_key', apiKey);
-      this.aiEnabled = true;
-
-      document.getElementById('setup-screen').style.display = 'none';
-      document.getElementById('game-container').style.display = 'block';
-      document.getElementById('status-panel').style.display = 'block';
-      this.updateStatus('ai', 'active', 'Connected');
-      this.updateStatus('image', 'active', 'Ready');
-      this.state.stage = 'covenant';
-    } catch {
-      alert('Invalid API key or network issue. Please check and try again.');
-    }
+    document.getElementById('setup-screen').style.display = 'none';
+    document.getElementById('game-container').style.display = 'block';
+    document.getElementById('status-panel').style.display = 'block';
+    this.updateStatus('ai', 'active', 'Connected');
+    this.updateStatus('image', 'active', 'Ready');
+    this.state.stage = 'covenant';
   }
 
   startOffline() {
@@ -149,8 +156,9 @@ export class QuantumTruthMUD {
   startCharacterCreation() { this.showCreationScene(0); }
 
   showCreationScene(index) {
-    if (index >= this.creationScenes.length) { this.finalizeCharacter(); return; }
-    const scene = this.creationScenes[index];
+    const scenes = this.creationScenes;
+    if (index >= scenes.length) { this.finalizeCharacter(); return; }
+    const scene = scenes[index];
     const textEl = document.getElementById('creation-text');
     const choicesEl = document.getElementById('creation-choices');
     textEl.textContent = scene.text;
@@ -241,6 +249,37 @@ export class QuantumTruthMUD {
     }
   }
 
+  // === Helpers ===
+  _shouldRateLimit() {
+    const now = Date.now();
+    if (now - this.lastAIAt < this.minAIIntervalMs) return true;
+    this.lastAIAt = now; return false;
+  }
+
+  async refreshRoomVisuals({ reDescribe = true, forceRegenerate = false } = {}) {
+    const roomId = this.state.currentRoom;
+    if (!roomId) return;
+
+    if (forceRegenerate) {
+      for (const k of Array.from(this.imageCache.keys())) {
+        if (k.startsWith(`${roomId}_`)) this.imageCache.delete(k);
+      }
+      // Clear desc cache variants for this room
+      for (const k of Array.from(this.descCache.keys())) {
+        if (k.startsWith(`${roomId}:`)) this.descCache.delete(k);
+      }
+      this.updateCacheDisplay();
+    }
+
+    if (this.aiEnabled) {
+      if (this._shouldRateLimit()) { this.addOutput('[AI cooling down…]', 'system-message'); return; }
+      await this.generateRoomImage(roomId);
+      if (reDescribe) await this.generateRoomDescription(roomId);
+    } else if (reDescribe) {
+      this.addOutput(this.getOfflineRoomDescription(roomId));
+    }
+  }
+
   async enterRoom(roomId) {
     const room = this.roomTemplates[roomId];
     if (!room) return;
@@ -255,7 +294,6 @@ export class QuantumTruthMUD {
       this.addOutput(this.getOfflineRoomDescription(roomId));
     }
 
-    // Items present?
     const items = (room.items || []).filter(it => !this.state.inventory.includes(it));
     if (items.length) this.addOutput(`You notice: ${items.join(', ')}`);
 
@@ -269,15 +307,18 @@ export class QuantumTruthMUD {
   }
 
   async generateRoomImage(roomId) {
-    const room = this.roomTemplates[roomId];
     const cacheKey = `${roomId}_${Math.floor(this.state.truthDensity*10)}_${Math.floor(this.state.quantumState.coherence*10)}_${Math.floor(this.state.shadowIntegration*10)}_${this.imageModel}`;
     if (this.imageCache.has(cacheKey)) {
       document.getElementById('room-image').src = this.imageCache.get(cacheKey);
       return;
     }
+    if (this._imageInflight.has(cacheKey)) return;
+    this._imageInflight.add(cacheKey);
+
     const loading = document.getElementById('image-loading');
     loading.classList.remove('hidden');
 
+    const room = this.roomTemplates[roomId];
     const imagePrompt =
       `${room.basePrompt}, truth density ${this.state.truthDensity>0.7?'high luminous':this.state.truthDensity<0.3?'dark shadowy':'twilight uncertain'}, ` +
       `quantum coherence ${this.state.quantumState.coherence>0.5?'stable reality':'reality fragmenting'}, ` +
@@ -297,10 +338,15 @@ export class QuantumTruthMUD {
       this.addOutput('[Image generation error]', 'system-message');
     } finally {
       loading.classList.add('hidden');
+      this._imageInflight.delete(cacheKey);
     }
   }
 
   async generateRoomDescription(roomId) {
+    const key = `${roomId}:${Math.round(this.state.truthDensity*10)}:${Math.round(this.state.quantumState.coherence*10)}:${Math.round(this.state.shadowIntegration*10)}:${this.textModel}`;
+    if (this.descCache.has(key)) {
+      this.addOutput(this.descCache.get(key), 'librarian-voice'); return;
+    }
     const room = this.roomTemplates[roomId];
     const prompt =
       `As the Quantum Librarian, describe ${room.name} for ${this.state.player.name}. ` +
@@ -309,7 +355,10 @@ export class QuantumTruthMUD {
       `Make it personal to their journey; show how the room reflects their inner state. Keep it atmospheric and under 150 words.`;
     try {
       const description = await this.ai.callLLM(prompt);
-      if (description) this.addOutput(description, 'librarian-voice');
+      if (description) {
+        this.descCache.set(key, description);
+        this.addOutput(description, 'librarian-voice');
+      }
     } catch {
       this.addOutput(this.getOfflineRoomDescription(roomId));
     }
@@ -353,6 +402,14 @@ export class QuantumTruthMUD {
   }
 
   async processWithAI(command) {
+    // Fast path: look/examine refresh visuals
+    if (/^(look|examine)\b/i.test(command)) {
+      await this.refreshRoomVisuals({ reDescribe: true });
+      return;
+    }
+
+    if (this._shouldRateLimit()) { this.addOutput('[AI cooling down…]', 'system-message'); return; }
+
     const room = this.roomTemplates[this.state.currentRoom];
     const prompt =
 `As the Quantum Librarian in ${room.name}, respond to player "${command}".
@@ -380,6 +437,7 @@ shadow_change: 0.0
 [MOVE]
 room_id or none
 [/MOVE]`;
+
     try {
       const response = await this.ai.callLLM(prompt);
       if (response) {
@@ -427,6 +485,7 @@ room_id or none
       case 'take': this.handleTake(target); break;
       case 'use': this.handleUse(target); break;
       case 'inventory': case 'inv': this.showInventory(); break;
+      case 'redraw': this.refreshRoomVisuals({ reDescribe: true, forceRegenerate: true }); break;
       default: this.addOutput('The Library remains silent.');
     }
   }
@@ -441,9 +500,17 @@ room_id or none
   }
 
   handleLook(target) {
-    if (!target || target === 'around') { this.addOutput(this.getOfflineRoomDescription(this.state.currentRoom)); }
-    else if (['self', 'me', 'character'].includes(target)) { this.showStats(); }
-    else { this.addOutput('You see only echoes of intention.'); }
+    const around = !target || target === 'around';
+    if (around) {
+      if (this.aiEnabled) {
+        this.refreshRoomVisuals({ reDescribe: true }); // no await in offline path
+      } else {
+        this.addOutput(this.getOfflineRoomDescription(this.state.currentRoom));
+      }
+      return;
+    }
+    if (['self','me','character'].includes(target)) this.showStats();
+    else this.addOutput('You see only echoes of intention.');
   }
 
   handleMeditate() {
@@ -477,7 +544,6 @@ room_id or none
     if (!target) { this.addOutput('Use what?'); return; }
     const item = this.state.inventory.find(it => it.toLowerCase().includes(target.toLowerCase()));
     if (!item) { this.addOutput("You don't have that."); return; }
-    // Simple affordances
     if (item === 'Quantum Key' && this.state.truthDensity < 0.8) {
       this.addOutput('The key hums. Locks you cannot see shift in distant stacks.');
       this.state.truthDensity = clamp01(this.state.truthDensity + 0.1);
@@ -495,19 +561,6 @@ room_id or none
   showInventory() {
     if (!this.state.inventory.length) this.addOutput('Your pockets are full of potential, not objects.');
     else this.addOutput(`Inventory: ${this.state.inventory.join(', ')}`);
-  }
-
-  showHelp() {
-    this.addOutput(
-      [
-        'Commands:',
-        '  go/move/walk <north|south|east|west|n|s|e|w>',
-        '  look [around|self]',
-        '  meditate, stats, map, help',
-        '  save, load, reset',
-        '  take <item>, use <item>, inventory'
-      ].join('\n')
-    );
   }
 
   // ===== Systems =====
@@ -607,7 +660,7 @@ room_id or none
   saveState() {
     if (this.state.stage === 'playing') {
       localStorage.setItem('qmud_state', JSON.stringify(this.serializeState()));
-      localStorage.setItem('qmud_version', '2.2');
+      localStorage.setItem('qmud_version', '2.3');
     }
   }
 
