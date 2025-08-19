@@ -1,5 +1,3 @@
-// js/aterna.js
-// ...existing imports and helpers unchanged...
 import { ymd } from './utils.js';
 
 function uuidv4() {
@@ -14,19 +12,14 @@ const isoNow = () => new Date().toISOString();
 export const Topics = {
   playerState: (playerId) => `qmud.players.${playerId}.state`,
   playerEvents:(playerId) => `qmud.players.${playerId}.events`,
-
   roomPresence:(roomId)   => `qmud.rooms.${roomId}.presence`,
   roomChat:    (roomId)   => `qmud.rooms.${roomId}.chat`,
   roomUpdates: (roomId)   => `qmud.rooms.${roomId}.updates`,
   roomCombat:  (roomId)   => `qmud.rooms.${roomId}.combat`,
-
-  // NEW: Books
   bookEvents:  (bookId)   => `qmud.books.${bookId}.events`,
   bookState:   (bookId)   => `qmud.books.${bookId}.state`,
-
   envTick:                  'qmud.env.tick',
   roomState:  (roomId)   => `qmud.env.rooms.${roomId}.state`,
-
   trades:                   'qmud.economy.trades',
   auditDaily: (day)      => `qmud.audit.daily.${day}`
 };
@@ -66,9 +59,8 @@ export class AternaClient {
     const url = `${this.base}${this.publishPath}`;
     const headers = { 'Content-Type': 'application/json' };
     if (this.token) headers['Authorization'] = this.token;
-
     const body = { topic, message: this.buildMessage(contentData, traceID) };
-    const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), keepalive: true });
+    const res = await fetch(url, { method:'POST', headers, body: JSON.stringify(body), keepalive:true });
     let data = null; try { data = await res.json(); } catch {}
     return { ok: res.ok, status: res.status, data };
   }
@@ -99,12 +91,11 @@ export class AternaClient {
     const u = new URL(`${this.base}${this.subscribePath}`);
     u.searchParams.set('topic', topic);
     u.searchParams.set('sender', this.sender);
-    Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
+    Object.entries(params).forEach(([k,v]) => u.searchParams.set(k, v));
     if (this.sseTokenValue) u.searchParams.set(this.sseTokenParam, this.sseTokenValue);
-
     const es = new EventSource(u.toString(), { withCredentials });
     es.onmessage = (evt) => { try { onEvent?.(JSON.parse(evt.data)); } catch {} };
-    es.onerror = () => { /* auto-retry by EventSource */ };
+    es.onerror = () => { /* auto retry by EventSource */ };
     return () => es.close();
   }
 }
