@@ -70,6 +70,20 @@ export class QuantumTruthMUD {
       (type, status, text) => this.updateStatus(type, status, text),
       () => localStorage.getItem('qmud_api_base') || 'https://api.openai.com'
     );
+      showHelp() {
+    this.addOutput(
+      `Commands:
+- Movement: go <n|s|e|w>, map
+- Observe: look, look self, meditate, stats
+- Items: take <item>, use <item>, inventory|inv
+- Shop (when vendor present): shop, buy <item>, sell <item>
+- Learning/Money: learn|study (gain Ξ Insight)
+- Evolution: evolve (consume items/Ξ to advance stage)
+- Multiplayer: who, say <text>, attack <name>
+- Books: books, read <book>, choose <n|id>, ask <question>, draw, book close|resume|summary
+- Progress/Saves: progress, save, load, reset, redraw (force regenerate room art)`
+    );
+  }
   }
 
   /**
