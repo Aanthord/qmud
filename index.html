@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quantum Truth MUD - The Canonical Library</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(135deg, #0a0e27 0%, #1a0527 100%);
+            color: #e0e0ff;
+            font-family: 'Georgia', serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow-x: hidden;
+        }
+
+        #game-container {
+            width: 90%;
+            max-width: 900px;
+            margin: 20px auto;
+            padding: 20px;
+        }
+
+        /* Covenant Screen */
+        .covenant-screen {
+            background: rgba(0, 0, 0, 0.8);
+            border: 2px solid #4a5fff;
+            border-radius: 10px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 0 30px rgba(74, 95, 255, 0.3);
+            animation: fadeIn 1s ease-in;
+        }
+
+        .mirror-text {
+            background: linear-gradient(90deg, #fff, #aaf, #fff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            animation: shimmer 3s infinite;
+            font-size: 2em;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        @keyframes shimmer {
+            0%, 100% { background-position: 0%; }
+            50% { background-position: 100%; }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Character Creation */
+        .creation-screen {
+            display: none;
+            animation: fadeIn 1s ease-in;
+        }
+
+        .scene-container {
+            background: rgba(10, 10, 30, 0.9);
+            border: 1px solid #4a5fff;
+            border-radius: 10px;
+            padding: 30px;
+            margin: 20px 0;
+            min-height: 200px;
+        }
+
+        .scene-text {
+            font-size: 1.1em;
+            line-height: 1.8;
+            margin-bottom: 20px;
+            white-space: pre-wrap;
+        }
+
+        .choices {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .choice-btn {
+            background: linear-gradient(135deg, #1a1a3a, #2a2a4a);
+            border: 1px solid #4a5fff;
+            color: #e0e0ff;
+            padding: 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 1em;
+        }
+
+        .choice-btn:hover {
+            background: linear-gradient(135deg, #2a2a4a, #3a3a5a);
+            box-shadow: 0 0 15px rgba(74, 95, 255, 0.5);
+            transform: translateX(5px);
+        }
+
+        /* Main Game */
+        .game-screen {
+            display: none;
+            animation: fadeIn 1s ease-in;
+        }
+
+        #image-display {
+            width: 100%;
+            height: 400px;
+            background: #000;
+            border: 2px solid #4a5fff;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .room-image {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            filter: brightness(0.8) contrast(1.1);
+        }
+
+        .quantum-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            background: radial-gradient(circle at var(--mouse-x) var(--mouse-y), 
+                rgba(100, 200, 255, 0.1) 0%, 
+                transparent 50%);
+            mix-blend-mode: screen;
+        }
+
+        #text-output {
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid #4a5fff;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            height: 300px;
+            overflow-y: auto;
+            font-size: 1.05em;
+            line-height: 1.6;
+        }
+
+        #text-output::-webkit-scrollbar {
+            width: 10px;
+        }
+
+        #text-output::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.3);
+        }
+
+        #text-output::-webkit-scrollbar-thumb {
+            background: #4a5fff;
+            border-radius: 5px;
+        }
+
+        .text-entry {
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid rgba(74, 95, 255, 0.2);
+        }
+
+        .room-name {
+            color: #64c8ff;
+            font-weight: bold;
+            font-size: 1.2em;
+            margin-bottom: 5px;
+        }
+
+        .command-echo {
+            color: #aaa;
+            font-style: italic;
+            margin-bottom: 5px;
+        }
+
+        #command-input {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid #4a5fff;
+            color: #e0e0ff;
+            padding: 15px;
+            border-radius: 5px;
+            font-size: 1.1em;
+            font-family: 'Georgia', serif;
+        }
+
+        #command-input:focus {
+            outline: none;
+            box-shadow: 0 0 15px rgba(74, 95, 255, 0.5);
+        }
+
+        /* Status Bar */
+        .status-bar {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.9);
+            border: 1px solid #4a5fff;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+
+        .status-item {
+            margin: 5px 0;
+        }
+
+        .status-label {
+            color: #888;
+            display: inline-block;
+            width: 120px;
+        }
+
+        .status-value {
+            color: #64c8ff;
+        }
+
+        /* Character Display */
+        .character-display {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.9);
+            border: 1px solid #4a5fff;
+            padding: 15px;
+            border-radius: 5px;
+            width: 200px;
+        }
+
+        .character-name {
+            color: #64c8ff;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .character-stats {
+            font-size: 0.9em;
+        }
+
+        .stat-bar {
+            height: 4px;
+            background: rgba(74, 95, 255, 0.3);
+            border-radius: 2px;
+            margin: 5px 0;
+            overflow: hidden;
+        }
+
+        .stat-fill {
+            height: 100%;
+            background: #64c8ff;
+            transition: width 0.3s;
+        }
+
+        /* Loading */
+        .loading {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        .quantum-spinner {
+            width: 60px;
+            height: 60px;
+            border: 3px solid rgba(100, 200, 255, 0.3);
+            border-top: 3px solid #64c8ff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .character-display, .status-bar {
+                position: static;
+                margin: 10px 0;
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <!-- Covenant Screen -->
+        <div id="covenant" class="covenant-screen">
+            <h1 class="mirror-text">The Mirror Covenant</h1>
+            <h2>⚠️ Essential Understanding</h2>
+            <p style="margin: 20px 0; line-height: 1.6;">
+                This is not merely a game. The Canonical Library is a living mirror designed to reflect your true nature through quantum mechanics and classical literature.
+            </p>
+            <h3>By entering, you acknowledge:</h3>
+            <ul style="margin: 20px 0; line-height: 1.8;">
+                <li>Your character's appearance will evolve based on your actual choices</li>
+                <li>This experience facilitates genuine personal growth through self-discovery</li>
+                <li>Your actions affect other players in quantum-entangled ways</li>
+                <li>All data is stored locally in your browser</li>
+            </ul>
+            <p style="margin: 20px 0; font-style: italic;">
+                "We don't see things as they are, we see them as we are." - Anaïs Nin
+            </p>
+            <button class="choice-btn" onclick="game.acceptCovenant()">I Accept the Mirror's Truth</button>
+        </div>
+
+        <!-- Character Creation -->
+        <div id="creation" class="creation-screen">
+            <div class="scene-container">
+                <div id="creation-text" class="scene-text"></div>
+                <div id="creation-choices" class="choices"></div>
+            </div>
+        </div>
+
+        <!-- Main Game -->
+        <div id="game" class="game-screen">
+            <div id="image-display">
+                <img id="room-image" class="room-image" src="" alt="Room">
+                <div class="quantum-overlay"></div>
+            </div>
+            <div id="text-output"></div>
+            <input type="text" id="command-input" placeholder="What do you do?" onkeypress="if(event.key==='Enter') game.processCommand()">
+        </div>
+
+        <!-- Character Display -->
+        <div id="character" class="character-display" style="display: none;">
+            <div class="character-name" id="char-name">Unknown</div>
+            <div class="character-stats">
+                <div>Truth: <span id="truth-density">0.50</span></div>
+                <div class="stat-bar"><div class="stat-fill" id="truth-bar" style="width: 50%"></div></div>
+                <div>Quantum: <span id="quantum-coherence">0.00</span></div>
+                <div class="stat-bar"><div class="stat-fill" id="quantum-bar" style="width: 0%"></div></div>
+                <div>Shadow: <span id="shadow-integration">0.00</span></div>
+                <div class="stat-bar"><div class="stat-fill" id="shadow-bar" style="width: 0%"></div></div>
+            </div>
+        </div>
+
+        <!-- Status Bar -->
+        <div class="status-bar" style="display: none;" id="status">
+            <div class="status-item">
+                <span class="status-label">Location:</span>
+                <span class="status-value" id="current-room">Unknown</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Hero Stage:</span>
+                <span class="status-value" id="hero-stage">Threshold</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Actions:</span>
+                <span class="status-value" id="action-count">0</span>
+            </div>
+        </div>
+
+        <!-- Loading -->
+        <div id="loading" class="loading">
+            <div class="quantum-spinner"></div>
+            <div>Processing quantum state...</div>
+        </div>
+    </div>
+
+    <script>
+        class QuantumTruthMUD {
+            constructor() {
+                this.state = {
+                    stage: 'covenant',
+                    player: null,
+                    currentRoom: null,
+                    actionCount: 0,
+                    history: [],
+                    quantumState: {
+                        coherence: 0,
+                        entanglement: [],
+                        superposition: 0
+                    },
+                    truthDensity: 0.5,
+                    shadowIntegration: 0,
+                    creationData: {
+                        observations: [],
+                        currentScene: 0,
+                        startTime: Date.now()
+                    }
+                };
+
+                // Literary rooms database
+                this.rooms = {
+                    'entrance': {
+                        name: 'The Library Entrance',
+                        description: 'You stand at the entrance to the Canonical Library. The door is neither locked nor open - it simply IS. Ancient symbols pulse with quantum light along the frame.',
+                        image: 'https://source.unsplash.com/1600x900/?library,ancient,mysterious',
+                        exits: { north: 'hall_of_mirrors', east: 'garden_of_forking_paths', west: 'shadow_archive' },
+                        literary: 'borges'
+                    },
+                    'hall_of_mirrors': {
+                        name: 'The Hall of Mirrors',
+                        description: 'Infinite reflections stretch in all directions. Each mirror shows a different version of you - some familiar, others alien. The Alice who went through the looking glass would feel at home here.',
+                        image: 'https://source.unsplash.com/1600x900/?mirror,hallway,infinite',
+                        exits: { south: 'entrance', north: 'quantum_laboratory', east: 'tea_room' },
+                        literary: 'carroll'
+                    },
+                    'garden_of_forking_paths': {
+                        name: 'The Garden of Forking Paths',
+                        description: 'Every path branches into infinite possibilities. Time moves differently here - past, present, and future converge. Borges himself might have designed this labyrinth.',
+                        image: 'https://source.unsplash.com/1600x900/?garden,maze,paths',
+                        exits: { west: 'entrance', north: 'tea_room', east: 'oracle_chamber' },
+                        literary: 'borges'
+                    },
+                    'shadow_archive': {
+                        name: 'The Shadow Archive',
+                        description: 'Books containing fears, failures, and forgotten dreams line the walls. Your shadow moves independently here, browsing the shelves with purpose.',
+                        image: 'https://source.unsplash.com/1600x900/?dark,library,gothic',
+                        exits: { east: 'entrance', north: 'abyss_reading_room' },
+                        literary: 'jung'
+                    },
+                    'tea_room': {
+                        name: 'The Mad Tea Room',
+                        description: 'A perpetual tea party where time has stopped at 6 o\'clock. The Mad Hatter\'s hat rests on an empty chair. The table is set for guests who exist in superposition.',
+                        image: 'https://source.unsplash.com/1600x900/?tea,party,whimsical',
+                        exits: { south: 'garden_of_forking_paths', west: 'hall_of_mirrors' },
+                        literary: 'carroll'
+                    },
+                    'quantum_laboratory': {
+                        name: 'The Quantum Laboratory',
+                        description: 'Schrödinger\'s cat prowls between existence and void. Equations float in the air, rewriting themselves. Your presence collapses probability waves into reality.',
+                        image: 'https://source.unsplash.com/1600x900/?laboratory,quantum,science',
+                        exits: { south: 'hall_of_mirrors', east: 'oracle_chamber' },
+                        literary: 'science'
+                    },
+                    'oracle_chamber': {
+                        name: 'The Oracle Chamber',
+                        description: 'Ancient wisdom meets quantum uncertainty. The Oracle speaks in superpositions - all answers are true until observed. The walls whisper fragments of the Tao Te Ching.',
+                        image: 'https://source.unsplash.com/1600x900/?oracle,temple,mystical',
+                        exits: { west: 'garden_of_forking_paths', north: 'quantum_laboratory' },
+                        literary: 'eastern'
+                    },
+                    'abyss_reading_room': {
+                        name: 'The Abyss Reading Room',
+                        description: 'Here, you can read the unwritten books - stories that could have been. Nietzsche\'s abyss gazes back from every page. Your true nature is written in invisible ink.',
+                        image: 'https://source.unsplash.com/1600x900/?abyss,void,library',
+                        exits: { south: 'shadow_archive' },
+                        literary: 'philosophy'
+                    }
+                };
+
+                // Character creation scenes
+                this.creationScenes = [
+                    {
+                        text: 'You stand at the threshold of the Canonical Library. The door waits. Time passes.\n\nHow long do you wait before acting?',
+                        choices: [
+                            { text: 'Enter immediately', value: 'active' },
+                            { text: 'Observe for a moment', value: 'contemplative' },
+                            { text: 'Wait until it feels right', value: 'intuitive' },
+                            { text: 'Test the door first', value: 'cautious' }
+                        ]
+                    },
+                    {
+                        text: 'Three paths diverge before you:\n\n- A spiral staircase descending into darkness\n- A bridge of light over an infinite void\n- A familiar hallway that smells like childhood\n\nWhich calls to you?',
+                        choices: [
+                            { text: 'The spiral into darkness', value: 'shadow-seeker' },
+                            { text: 'The bridge of light', value: 'faith-walker' },
+                            { text: 'The familiar hallway', value: 'comfort-drawn' },
+                            { text: 'Stand still and observe all three', value: 'observer' }
+                        ]
+                    },
+                    {
+                        text: 'A mirror shows not your reflection, but a crowd of figures. Each claims to be you:\n\n- A hero in gleaming armor\n- A child, frightened and alone\n- A shadow with your voice\n- An elder, wise but weary\n\n"Choose your form," they say in unison.',
+                        choices: [
+                            { text: 'The hero', value: 'idealized' },
+                            { text: 'The child', value: 'vulnerable' },
+                            { text: 'The shadow', value: 'integrated' },
+                            { text: 'The elder', value: 'wisdom' }
+                        ]
+                    },
+                    {
+                        text: 'In the deepest part of the Library, you find a book with your name on it. Inside are all your failures and fears. The book is burning.\n\nWhat do you do?',
+                        choices: [
+                            { text: 'Save the entire book', value: 'full-integration' },
+                            { text: 'Let it burn', value: 'rejection' },
+                            { text: 'Read one page before it\'s gone', value: 'partial-integration' },
+                            { text: 'Add a new page', value: 'shadow-work' }
+                        ]
+                    },
+                    {
+                        text: '"What is your name?" asks the Library.\n\nBut it\'s not asking for the name you were given. It\'s asking for the name you ARE.',
+                        choices: [
+                            { text: 'Speak a name', value: 'named', input: true },
+                            { text: 'Remain silent', value: 'unnamed' }
+                        ]
+                    }
+                ];
+
+                this.initializeGame();
+            }
+
+            initializeGame() {
+                // Load saved state if exists
+                this.loadState();
+                
+                // Set up event listeners
+                document.addEventListener('mousemove', (e) => {
+                    const display = document.getElementById('image-display');
+                    if (display) {
+                        const rect = display.getBoundingClientRect();
+                        const x = ((e.clientX - rect.left) / rect.width * 100) + '%';
+                        const y = ((e.clientY - rect.top) / rect.height * 100) + '%';
+                        display.style.setProperty('--mouse-x', x);
+                        display.style.setProperty('--mouse-y', y);
+                    }
+                });
+
+                // Auto-save every 30 seconds
+                setInterval(() => this.saveState(), 30000);
+            }
+
+            acceptCovenant() {
+                document.getElementById('covenant').style.display = 'none';
+                document.getElementById('creation').style.display = 'block';
+                this.state.stage = 'creation';
+                this.startCharacterCreation();
+            }
+
+            startCharacterCreation() {
+                this.showCreationScene(0);
+            }
+
+            showCreationScene(index) {
+                if (index >= this.creationScenes.length) {
+                    this.finalizeCharacter();
+                    return;
+                }
+
+                const scene = this.creationScenes[index];
+                const textEl = document.getElementById('creation-text');
+                const choicesEl = document.getElementById('creation-choices');
+
+                textEl.textContent = scene.text;
+                choicesEl.innerHTML = '';
+
+                if (scene.choices[0].input) {
+                    // Name input scene
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.className = 'choice-btn';
+                    input.placeholder = 'Enter your true name...';
+                    input.style.marginBottom = '10px';
+                    choicesEl.appendChild(input);
+
+                    scene.choices.forEach(choice => {
+                        const btn = document.createElement('button');
+                        btn.className = 'choice-btn';
+                        btn.textContent = choice.text;
+                        btn.onclick = () => {
+                            const value = choice.value === 'named' ? input.value || 'Unnamed' : '[SILENCE]';
+                            this.recordCreationChoice(index, choice.value, value);
+                            this.showCreationScene(index + 1);
+                        };
+                        choicesEl.appendChild(btn);
+                    });
+                } else {
+                    scene.choices.forEach(choice => {
+                        const btn = document.createElement('button');
+                        btn.className = 'choice-btn';
+                        btn.textContent = choice.text;
+                        btn.onclick = () => {
+                            this.recordCreationChoice(index, choice.value);
+                            this.showCreationScene(index + 1);
+                        };
+                        choicesEl.appendChild(btn);
+                    });
+                }
+            }
+
+            recordCreationChoice(sceneIndex, value, extra = null) {
+                this.state.creationData.observations.push({
+                    scene: sceneIndex,
+                    choice: value,
+                    extra: extra,
+                    timestamp: Date.now() - this.state.creationData.startTime
+                });
+            }
+
+            finalizeCharacter() {
+                const obs = this.state.creationData.observations;
+                
+                // Derive true form from choices
+                const trueForm = {
+                    name: obs[4]?.extra || 'Seeker',
+                    archetype: this.deriveArchetype(obs),
+                    shadowLevel: this.deriveShadowLevel(obs),
+                    quantumSignature: Math.random(),
+                    truthDensity: 0.5,
+                    heroStage: 'Threshold'
+                };
+
+                this.state.player = trueForm;
+                this.state.currentRoom = 'entrance';
+                
+                // Adjust initial quantum state based on choices
+                if (obs[0]?.choice === 'contemplative') this.state.quantumState.coherence += 0.1;
+                if (obs[1]?.choice === 'shadow-seeker') this.state.shadowIntegration += 0.2;
+                if (obs[2]?.choice === 'integrated') this.state.shadowIntegration += 0.3;
+                if (obs[3]?.choice === 'full-integration') this.state.shadowIntegration += 0.4;
+
+                this.startGame();
+            }
+
+            deriveArchetype(observations) {
+                const archetypes = {
+                    'active': 'Warrior',
+                    'contemplative': 'Sage',
+                    'intuitive': 'Mystic',
+                    'cautious': 'Guardian'
+                };
+                return archetypes[observations[0]?.choice] || 'Wanderer';
+            }
+
+            deriveShadowLevel(observations) {
+                let shadow = 0;
+                if (observations[2]?.choice === 'shadow') shadow += 0.3;
+                if (observations[3]?.choice === 'full-integration') shadow -= 0.2;
+                if (observations[3]?.choice === 'rejection') shadow += 0.4;
+                return Math.max(0, Math.min(1, shadow + 0.5));
+            }
+
+            startGame() {
+                document.getElementById('creation').style.display = 'none';
+                document.getElementById('game').style.display = 'block';
+                document.getElementById('character').style.display = 'block';
+                document.getElementById('status').style.display = 'block';
+                
+                this.state.stage = 'playing';
+                this.updateDisplay();
+                this.enterRoom('entrance');
+                
+                this.addOutput(`Welcome to the Canonical Library, ${this.state.player.name}.`);
+                this.addOutput(`You are a ${this.state.player.archetype} at the ${this.state.player.heroStage} of your journey.`);
+            }
+
+            enterRoom(roomId) {
+                const room = this.rooms[roomId];
+                if (!room) return;
+
+                this.state.currentRoom = roomId;
+                document.getElementById('current-room').textContent = room.name;
+                
+                // Update room image
+                const img = document.getElementById('room-image');
+                img.src = room.image;
+                
+                // Display room description
+                this.addOutput(`\n[${room.name}]`, 'room-name');
+                this.addOutput(room.description);
+                
+                // List exits
+                const exits = Object.keys(room.exits);
+                if (exits.length > 0) {
+                    this.addOutput(`\nExits: ${exits.join(', ')}`);
+                }
+
+                // Apply quantum effects
+                this.applyQuantumEffects(room);
+                
+                this.updateDisplay();
+            }
+
+            applyQuantumEffects(room) {
+                // Quantum coherence increases in certain rooms
+                if (room.literary === 'science') {
+                    this.state.quantumState.coherence = Math.min(1, this.state.quantumState.coherence + 0.1);
+                }
+                
+                // Shadow work in shadow rooms
+                if (room.name.toLowerCase().includes('shadow')) {
+                    this.state.shadowIntegration = Math.min(1, this.state.shadowIntegration + 0.05);
+                }
+                
+                // Truth density shifts based on actions
+                if (room.literary === 'philosophy') {
+                    this.state.truthDensity = Math.min(1, this.state.truthDensity + 0.05);
+                }
+            }
+
+            processCommand() {
+                const input = document.getElementById('command-input');
+                const command = input.value.trim().toLowerCase();
+                
+                if (!command) return;
+                
+                this.addOutput(`> ${command}`, 'command-echo');
+                input.value = '';
+                
+                this.state.actionCount++;
+                document.getElementById('action-count').textContent = this.state.actionCount;
+                
+                // Parse command
+                const words = command.split(' ');
+                const verb = words[0];
+                const target = words.slice(1).join(' ');
+                
+                // Process different commands
+                switch(verb) {
+                    case 'go':
+                    case 'move':
+                    case 'walk':
+                        this.handleMovement(target);
+                        break;
+                    case 'look':
+                    case 'examine':
+                    case 'inspect':
+                        this.handleLook(target);
+                        break;
+                    case 'help':
+                        this.showHelp();
+                        break;
+                    case 'stats':
+                    case 'status':
+                        this.showStats();
+                        break;
+                    case 'save':
+                        this.saveState();
+                        this.addOutput('Game saved.');
+                        break;
+                    case 'meditate':
+                        this.handleMeditate();
+                        break;
+                    case 'quantum':
+                        this.handleQuantum();
+                        break;
+                    default:
+                        this.handleUnknownCommand(command);
+                }
+                
+                // Update quantum state based on actions
+                this.evolveQuantumState(command);
+                this.updateDisplay();
+            }
+
+            handleMovement(direction) {
+                const room = this.rooms[this.state.currentRoom];
+                
+                if (!direction) {
+                    this.addOutput('Go where? (try: go north, go south, etc.)');
+                    return;
+                }
+                
+                // Handle shortcuts
+                const shortcuts = { n: 'north', s: 'south', e: 'east', w: 'west' };
+                direction = shortcuts[direction] || direction;
+                
+                if (room.exits[direction]) {
+                    this.enterRoom(room.exits[direction]);
+                } else {
+                    this.addOutput(`You cannot go ${direction} from here.`);
+                }
+            }
+
+            handleLook(target) {
+                if (!target || target === 'around') {
+                    this.enterRoom(this.state.currentRoom);
+                } else if (target === 'self' || target === 'me') {
+                    this.addOutput(`You are ${this.state.player.name}, a ${this.state.player.archetype}.`);
+                    this.addOutput(`Truth Density: ${(this.state.truthDensity * 100).toFixed(0)}%`);
+                    this.addOutput(`Quantum Coherence: ${(this.state.quantumState.coherence * 100).toFixed(0)}%`);
+                    this.addOutput(`Shadow Integration: ${(this.state.shadowIntegration * 100).toFixed(0)}%`);
+                } else {
+                    this.addOutput(`You examine the ${target}, but find nothing unusual.`);
+                }
+            }
+
+            handleMeditate() {
+                this.addOutput('You close your eyes and focus on your quantum state...');
+                this.state.quantumState.coherence = Math.min(1, this.state.quantumState.coherence + 0.15);
+                this.state.truthDensity = Math.min(1, this.state.truthDensity + 0.05);
+                this.addOutput('Your consciousness expands. Quantum coherence increased.');
+            }
+
+            handleQuantum() {
+                this.addOutput('You attempt to observe your quantum state...');
+                this.addOutput('The act of observation collapses the wave function!');
+                
+                // Quantum observation has consequences
+                const collapse = Math.random();
+                if (collapse > 0.7) {
+                    this.state.quantumState.coherence *= 0.8;
+                    this.addOutput('Your coherence decreases from the observation.');
+                } else if (collapse > 0.3) {
+                    this.state.quantumState.superposition = Math.random();
+                    this.addOutput('You exist in superposition between states.');
+                } else {
+                    this.state.quantumState.entanglement.push(Date.now());
+                    this.addOutput('You become entangled with the Library itself.');
+                }
+            }
+
+            handleUnknownCommand(command) {
+                const responses = [
+                    'The Library does not understand that action.',
+                    'Your words echo strangely in this quantum space.',
+                    'Perhaps you meant something else?',
+                    'The universe remains unmoved by your command.'
+                ];
+                this.addOutput(responses[Math.floor(Math.random() * responses.length)]);
+            }
+
+            showHelp() {
+                this.addOutput('\nAvailable commands:');
+                this.addOutput('  go [direction] - Move in a direction (north, south, east, west)');
+                this.addOutput('  look [target] - Examine something');
+                this.addOutput('  meditate - Increase quantum coherence');
+                this.addOutput('  quantum - Observe your quantum state');
+                this.addOutput('  stats - View your statistics');
+                this.addOutput('  save - Save your progress');
+                this.addOutput('  help - Show this help');
+            }
+
+            showStats() {
+                this.addOutput(`\n=== ${this.state.player.name} ===`);
+                this.addOutput(`Archetype: ${this.state.player.archetype}`);
+                this.addOutput(`Hero Stage: ${this.state.player.heroStage}`);
+                this.addOutput(`Actions Taken: ${this.state.actionCount}`);
+                this.addOutput(`Truth Density: ${(this.state.truthDensity * 100).toFixed(1)}%`);
+                this.addOutput(`Quantum Coherence: ${(this.state.quantumState.coherence * 100).toFixed(1)}%`);
+                this.addOutput(`Shadow Integration: ${(this.state.shadowIntegration * 100).toFixed(1)}%`);
+            }
+
+            evolveQuantumState(action) {
+                // Actions affect quantum state
+                this.state.quantumState.coherence *= 0.99; // Natural decoherence
+                
+                // Certain actions increase coherence
+                if (action.includes('think') || action.includes('observe')) {
+                    this.state.quantumState.coherence += 0.02;
+                }
+                
+                // Truth density evolves based on honesty
+                if (action.includes('truth') || action.includes('honest')) {
+                    this.state.truthDensity = Math.min(1, this.state.truthDensity + 0.01);
+                }
+                
+                // Keep values in bounds
+                this.state.quantumState.coherence = Math.max(0, Math.min(1, this.state.quantumState.coherence));
+                this.state.truthDensity = Math.max(0, Math.min(1, this.state.truthDensity));
+                this.state.shadowIntegration = Math.max(0, Math.min(1, this.state.shadowIntegration));
+            }
+
+            addOutput(text, className = '') {
+                const output = document.getElementById('text-output');
+                const entry = document.createElement('div');
+                entry.className = className || 'text-entry';
+                entry.textContent = text;
+                output.appendChild(entry);
+                output.scrollTop = output.scrollHeight;
+                
+                // Keep history manageable
+                while (output.children.length > 100) {
+                    output.removeChild(output.firstChild);
+                }
+            }
+
+            updateDisplay() {
+                // Update character display
+                document.getElementById('char-name').textContent = this.state.player?.name || 'Unknown';
+                document.getElementById('truth-density').textContent = (this.state.truthDensity * 100).toFixed(0) + '%';
+                document.getElementById('quantum-coherence').textContent = (this.state.quantumState.coherence * 100).toFixed(0) + '%';
+                document.getElementById('shadow-integration').textContent = (this.state.shadowIntegration * 100).toFixed(0) + '%';
+                
+                document.getElementById('truth-bar').style.width = (this.state.truthDensity * 100) + '%';
+                document.getElementById('quantum-bar').style.width = (this.state.quantumState.coherence * 100) + '%';
+                document.getElementById('shadow-bar').style.width = (this.state.shadowIntegration * 100) + '%';
+                
+                // Update status
+                document.getElementById('hero-stage').textContent = this.state.player?.heroStage || 'Unknown';
+            }
+
+            saveState() {
+                localStorage.setItem('quantumMUD_state', JSON.stringify(this.state));
+                localStorage.setItem('quantumMUD_version', '1.0');
+            }
+
+            loadState() {
+                const saved = localStorage.getItem('quantumMUD_state');
+                if (saved) {
+                    try {
+                        const loaded = JSON.parse(saved);
+                        // Restore game state
+                        if (loaded.stage === 'playing' && loaded.player) {
+                            this.state = loaded;
+                            this.startGame();
+                        }
+                    } catch (e) {
+                        console.log('Could not load saved game');
+                    }
+                }
+            }
+        }
+
+        // Initialize game
+        const game = new QuantumTruthMUD();
+    </script>
+</body>
+</html>
