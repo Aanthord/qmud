@@ -1,4 +1,6 @@
 // js/game.js
+// Complete file — fixed: showHelp() moved outside constructor; creationScenes default -> [].
+
 import { clamp01, downloadJSON } from './utils.js';
 import { AIClient } from './ai.js';
 import { loadContent } from './content.js';
@@ -55,7 +57,7 @@ export class QuantumTruthMUD {
 
     // Content placeholders
     this.roomTemplates = {};
-    this.creationScenes = {};
+    this.creationScenes = []; // fix: must be an array (showCreationScene uses .length)
     this.items = {};
 
     // Instantiate Book engine
@@ -70,20 +72,6 @@ export class QuantumTruthMUD {
       (type, status, text) => this.updateStatus(type, status, text),
       () => localStorage.getItem('qmud_api_base') || 'https://api.openai.com'
     );
-      showHelp() {
-    this.addOutput(
-      `Commands:
-- Movement: go <n|s|e|w>, map
-- Observe: look, look self, meditate, stats
-- Items: take <item>, use <item>, inventory|inv
-- Shop (when vendor present): shop, buy <item>, sell <item>
-- Learning/Money: learn|study (gain Ξ Insight)
-- Evolution: evolve (consume items/Ξ to advance stage)
-- Multiplayer: who, say <text>, attack <name>
-- Books: books, read <book>, choose <n|id>, ask <question>, draw, book close|resume|summary
-- Progress/Saves: progress, save, load, reset, redraw (force regenerate room art)`
-    );
-  }
   }
 
   /**
@@ -267,23 +255,17 @@ export class QuantumTruthMUD {
   /**
    * Start character creation scenes.
    */
-  startCharacterCreation() {
-    this.showCreationScene(0);
-  }
+  startCharacterCreation() { this.showCreationScene(0); }
 
   /**
    * Render a creation scene and attach handlers.
    */
   showCreationScene(index) {
-    if (index >= this.creationScenes.length) {
-      this.finalizeCharacter();
-      return;
-    }
+    if (index >= this.creationScenes.length) { this.finalizeCharacter(); return; }
     const scene = this.creationScenes[index];
     const textEl = document.getElementById('creation-text');
     const choicesEl = document.getElementById('creation-choices');
-    textEl.textContent = scene.text;
-    choicesEl.innerHTML = '';
+    textEl.textContent = scene.text; choicesEl.innerHTML = '';
 
     if (scene.choices[0]?.input) {
       const input = document.createElement('input');
@@ -317,11 +299,9 @@ export class QuantumTruthMUD {
   /**
    * Record choice during character creation.
    */
-  recordCreationChoice(sceneIndex, value, extra = null) {
+  recordCreationChoice(sceneIndex, value, extra=null) {
     this.state.creationData.observations.push({
-      scene: sceneIndex,
-      choice: value,
-      extra,
+      scene: sceneIndex, choice: value, extra,
       timestamp: Date.now() - this.state.creationData.startTime
     });
   }
@@ -363,9 +343,7 @@ export class QuantumTruthMUD {
     // AI welcome
     if (this.aiEnabled) {
       const prompt = `As the Quantum Librarian, welcome ${this.state.player.name} (${this.state.player.archetype}) to the Library. Their truth density is ${this.state.truthDensity}, quantum coherence ${this.state.quantumState.coherence}, shadow integration ${this.state.shadowIntegration}. Give a personalized, mysterious welcome that hints at their journey ahead. Keep it under 100 words and deeply atmospheric.`;
-      try {
-        this.librarianMessage = await this.ai.callLLM(prompt);
-      } catch {}
+      try { this.librarianMessage = await this.ai.callLLM(prompt); } catch {}
     }
     this.startGame();
   }
@@ -668,8 +646,8 @@ room_id or none
       const response = await this.ai.callLLM(prompt);
       if (response) {
         const narrativeMatch = response.match(/\[NARRATIVE\]([\s\S]*?)\[\/NARRATIVE\]/);
-        const statsMatch = response.match(/\[STATS\]([\s\S]*?)\[\/STATS\]/);
-        const moveMatch = response.match(/\[MOVE\]([\s\S]*?)\[\/MOVE\]/);
+        const statsMatch = response.match(/\[STATS\]([\\s\S]*?)\[\/STATS\]/);
+        const moveMatch = response.match(/\[MOVE\]([\\s\S]*?)\[\/MOVE\]/);
 
         if (narrativeMatch) {
           this.addOutput(narrativeMatch[1].trim(), 'librarian-voice');
@@ -852,6 +830,22 @@ room_id or none
       default:
         this.addOutput('Book commands: book open <name>, book close, book resume, book summary, book ask <q>, book choose <n|id>, book draw');
     }
+  }
+
+  // ---------- Help ----------
+  showHelp() {
+    this.addOutput(
+      `Commands:
+- Movement: go <n|s|e|w>, map
+- Observe: look, look self, meditate, stats
+- Items: take <item>, use <item>, inventory|inv
+- Shop (when vendor present): shop, buy <item>, sell <item>
+- Learning/Money: learn|study (gain Ξ Insight)
+- Evolution: evolve (consume items/Ξ to advance stage)
+- Multiplayer: who, say <text>, attack <name>
+- Books: books, read <book>, choose <n|id>, ask <question>, draw, book close|resume|summary
+- Progress/Saves: progress, save, load, reset, redraw (force regenerate room art)`
+    );
   }
 
   // ================= Command handlers (offline) =================
