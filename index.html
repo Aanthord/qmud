@@ -213,28 +213,33 @@
         #image-display {
             width: 100%;
             height: 500px;
-            background: #000;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
             border: 2px solid #4a5fff;
             border-radius: 10px;
             margin-bottom: 20px;
             position: relative;
             overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .room-image {
             width: 100%;
             height: 100%;
             object-fit: cover;
+            display: none;
+        }
+
+        .room-image.loaded {
+            display: block;
         }
 
         .image-loading {
             position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
             color: #4a5fff;
             font-size: 1.2em;
-            display: none;
+            text-align: center;
         }
 
         .quantum-overlay {
@@ -280,6 +285,11 @@
         .system-message {
             color: #888;
             font-size: 0.9em;
+            font-style: italic;
+        }
+
+        .error-message {
+            color: #f87171;
             font-style: italic;
         }
 
@@ -330,38 +340,6 @@
             transition: width 0.5s ease;
         }
 
-        /* Map Display */
-        .map-display {
-            position: fixed;
-            bottom: 10px;
-            right: 10px;
-            background: rgba(0, 0, 0, 0.9);
-            border: 1px solid #4a5fff;
-            padding: 10px;
-            border-radius: 5px;
-            display: none;
-        }
-
-        .map-room {
-            display: inline-block;
-            width: 30px;
-            height: 30px;
-            margin: 2px;
-            background: rgba(74, 95, 255, 0.2);
-            border: 1px solid #4a5fff;
-            cursor: pointer;
-            position: relative;
-        }
-
-        .map-room.current {
-            background: #4a5fff;
-            animation: pulse 2s infinite;
-        }
-
-        .map-room.visited {
-            background: rgba(74, 95, 255, 0.5);
-        }
-
         /* Loading Spinner */
         .quantum-spinner {
             width: 60px;
@@ -370,7 +348,7 @@
             border-top: 3px solid #64c8ff;
             border-radius: 50%;
             animation: spin 1s linear infinite;
-            margin: 0 auto;
+            margin: 0 auto 20px;
         }
 
         @keyframes spin {
@@ -378,7 +356,7 @@
             100% { transform: rotate(360deg); }
         }
 
-        /* Image Cache Display */
+        /* Cache Info */
         .cache-info {
             position: fixed;
             bottom: 10px;
@@ -389,26 +367,6 @@
             border-radius: 5px;
             font-size: 0.8em;
             font-family: monospace;
-        }
-
-        /* Error Message */
-        .error-message {
-            background: rgba(248, 113, 113, 0.1);
-            border: 1px solid #f87171;
-            color: #fca5a5;
-            padding: 10px;
-            border-radius: 5px;
-            margin: 10px 0;
-        }
-
-        /* Success Message */
-        .success-message {
-            background: rgba(74, 222, 128, 0.1);
-            border: 1px solid #4ade80;
-            color: #86efac;
-            padding: 10px;
-            border-radius: 5px;
-            margin: 10px 0;
         }
     </style>
 </head>
@@ -527,12 +485,6 @@
             </div>
         </div>
 
-        <!-- Map Display -->
-        <div id="map" class="map-display">
-            <div style="color: #888; font-size: 0.8em; margin-bottom: 5px;">Known Paths:</div>
-            <div id="map-grid"></div>
-        </div>
-
         <!-- Cache Info -->
         <div class="cache-info">
             <div>Images Cached: <span id="cache-count">0</span></div>
@@ -548,6 +500,7 @@
                 this.imageCache = new Map();
                 this.tokenCount = 0;
                 this.processingCommand = false;
+                this.imageGenerationEnabled = true; // Can toggle off to save API calls
                 
                 this.state = {
                     stage: 'setup',
@@ -570,53 +523,53 @@
                     }
                 };
 
-                // Room templates (AI will enhance these)
+                // Room templates
                 this.roomTemplates = {
                     'entrance': {
                         name: 'The Library Entrance',
-                        basePrompt: 'A vast library entrance with quantum properties, doors that exist in superposition',
+                        basePrompt: 'A vast mystical library entrance, doors that exist in multiple dimensions simultaneously, ethereal and mysterious',
                         exits: { north: 'hall_of_mirrors', east: 'garden_of_forking_paths', west: 'shadow_archive' },
                         literary: 'borges'
                     },
                     'hall_of_mirrors': {
                         name: 'The Hall of Mirrors',
-                        basePrompt: 'An infinite hall of mirrors showing different versions of reality, Alice in Wonderland style',
+                        basePrompt: 'An infinite corridor of mirrors reflecting different realities, surreal and dreamlike, Alice in Wonderland aesthetic',
                         exits: { south: 'entrance', north: 'quantum_laboratory', east: 'tea_room' },
                         literary: 'carroll'
                     },
                     'garden_of_forking_paths': {
                         name: 'The Garden of Forking Paths',
-                        basePrompt: 'A garden where every path branches into infinite possibilities, Borges-inspired labyrinth',
+                        basePrompt: 'A mystical garden where paths split into infinite possibilities, Borges-inspired labyrinth with temporal distortions',
                         exits: { west: 'entrance', north: 'tea_room', east: 'oracle_chamber' },
                         literary: 'borges'
                     },
                     'shadow_archive': {
                         name: 'The Shadow Archive',
-                        basePrompt: 'A dark library containing shadow selves and repressed memories, Jungian psychology',
+                        basePrompt: 'A dark gothic library filled with shadow selves and repressed memories, Jungian psychological horror aesthetic',
                         exits: { east: 'entrance', north: 'abyss_reading_room' },
                         literary: 'jung'
                     },
                     'tea_room': {
                         name: 'The Mad Tea Room',
-                        basePrompt: 'A perpetual tea party frozen in time, Mad Hatter\'s tea party from Alice in Wonderland',
+                        basePrompt: 'A surreal tea party frozen in time, whimsical and unsettling, Mad Hatter tea party from Alice in Wonderland',
                         exits: { south: 'garden_of_forking_paths', west: 'hall_of_mirrors' },
                         literary: 'carroll'
                     },
                     'quantum_laboratory': {
                         name: 'The Quantum Laboratory',
-                        basePrompt: 'A laboratory where Schrödinger\'s cat exists in superposition, quantum physics made visible',
+                        basePrompt: 'A futuristic laboratory where quantum physics becomes visible, Schrodinger cat, probability waves materializing',
                         exits: { south: 'hall_of_mirrors', east: 'oracle_chamber' },
                         literary: 'science'
                     },
                     'oracle_chamber': {
                         name: 'The Oracle Chamber',
-                        basePrompt: 'Ancient temple meets quantum uncertainty, Oracle speaks in superpositions, Eastern philosophy',
+                        basePrompt: 'Ancient temple merged with quantum uncertainty, mystical oracle speaking in riddles, Eastern philosophy aesthetic',
                         exits: { west: 'garden_of_forking_paths', north: 'quantum_laboratory' },
                         literary: 'eastern'
                     },
                     'abyss_reading_room': {
                         name: 'The Abyss Reading Room',
-                        basePrompt: 'A void library where unwritten books exist, Nietzschean abyss that gazes back',
+                        basePrompt: 'A void library where unwritten books float, Nietzschean abyss that gazes back, existential horror',
                         exits: { south: 'shadow_archive' },
                         literary: 'philosophy'
                     }
@@ -706,16 +659,29 @@
                     return;
                 }
 
-                // Test the API key
+                // Test the API key with a simple request
                 try {
-                    const response = await fetch('https://api.openai.com/v1/models', {
+                    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                        method: 'POST',
                         headers: {
-                            'Authorization': `Bearer ${apiKey}`
-                        }
+                            'Authorization': `Bearer ${apiKey}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            model: 'gpt-3.5-turbo',
+                            messages: [
+                                {
+                                    role: 'user',
+                                    content: 'Hello'
+                                }
+                            ],
+                            max_tokens: 5
+                        })
                     });
 
                     if (!response.ok) {
-                        throw new Error('Invalid API key');
+                        const error = await response.json();
+                        throw new Error(error.error?.message || 'Invalid API key');
                     }
 
                     // Save and continue
@@ -733,12 +699,14 @@
                     this.state.stage = 'covenant';
 
                 } catch (error) {
-                    alert('Invalid API key. Please check and try again.');
+                    console.error('API validation error:', error);
+                    alert('API key validation failed: ' + error.message);
                 }
             }
 
             startOffline() {
                 this.aiEnabled = false;
+                this.imageGenerationEnabled = false;
                 document.getElementById('setup-screen').style.display = 'none';
                 document.getElementById('game-container').style.display = 'block';
                 document.getElementById('status-panel').style.display = 'block';
@@ -841,11 +809,6 @@
                 if (obs[2]?.choice === 'integrated') this.state.shadowIntegration += 0.3;
                 if (obs[3]?.choice === 'full-integration') this.state.shadowIntegration += 0.4;
 
-                // If AI enabled, get personalized introduction
-                if (this.aiEnabled) {
-                    await this.getAIIntroduction();
-                }
-
                 this.startGame();
             }
 
@@ -867,41 +830,21 @@
                 return Math.max(0, Math.min(1, shadow + 0.5));
             }
 
-            async getAIIntroduction() {
-                const context = this.buildContext();
-                const prompt = `As the Quantum Librarian, welcome ${this.state.player.name} (${this.state.player.archetype}) to the Library. 
-                    Their truth density is ${this.state.truthDensity}, quantum coherence ${this.state.quantumState.coherence}, 
-                    shadow integration ${this.state.shadowIntegration}. 
-                    Give a personalized, mysterious welcome that hints at their journey ahead. 
-                    Keep it under 100 words and deeply atmospheric.`;
-
-                try {
-                    const response = await this.callGPT(prompt, 'system');
-                    if (response) {
-                        this.librarianMessage = response;
-                    }
-                } catch (error) {
-                    console.error('AI introduction failed:', error);
-                }
-            }
-
             startGame() {
                 document.getElementById('creation').style.display = 'none';
                 document.getElementById('game').style.display = 'block';
                 document.getElementById('character').style.display = 'block';
-                document.getElementById('map').style.display = 'block';
+                
+                // Hide loading spinner initially
+                document.getElementById('image-loading').style.display = 'none';
                 
                 this.state.stage = 'playing';
                 this.updateDisplay();
-                this.enterRoom('entrance');
                 
-                if (this.librarianMessage) {
-                    this.addOutput('[The Quantum Librarian speaks:]', 'system-message');
-                    this.addOutput(this.librarianMessage, 'librarian-voice');
-                } else {
-                    this.addOutput(`Welcome to the Canonical Library, ${this.state.player.name}.`);
-                    this.addOutput(`You are a ${this.state.player.archetype} at the ${this.state.player.heroStage} of your journey.`);
-                }
+                this.addOutput(`Welcome to the Canonical Library, ${this.state.player.name}.`);
+                this.addOutput(`You are a ${this.state.player.archetype} at the ${this.state.player.heroStage} of your journey.`);
+                
+                this.enterRoom('entrance');
             }
 
             async enterRoom(roomId) {
@@ -913,10 +856,14 @@
                 
                 this.addOutput(`\n[${room.name}]`, 'room-name');
                 
-                // Generate or retrieve room image
+                // Generate room image if AI is enabled
+                if (this.aiEnabled && this.imageGenerationEnabled) {
+                    this.generateRoomImage(roomId);
+                }
+                
+                // Generate room description
                 if (this.aiEnabled) {
-                    await this.generateRoomImage(roomId);
-                    await this.generateRoomDescription(roomId);
+                    this.generateRoomDescription(roomId);
                 } else {
                     this.addOutput(this.getOfflineRoomDescription(roomId));
                 }
@@ -928,7 +875,6 @@
 
                 this.applyQuantumEffects(room);
                 this.updateDisplay();
-                this.updateMap();
                 this.saveState();
             }
 
@@ -939,22 +885,32 @@
                 if (this.imageCache.has(cacheKey)) {
                     const cached = this.imageCache.get(cacheKey);
                     document.getElementById('room-image').src = cached;
+                    document.getElementById('room-image').classList.add('loaded');
                     return;
                 }
 
                 // Show loading
                 document.getElementById('image-loading').style.display = 'block';
+                document.getElementById('room-image').classList.remove('loaded');
                 this.updateStatus('image', 'processing', 'Generating...');
 
                 const room = this.roomTemplates[roomId];
-                const imagePrompt = `${room.basePrompt}, 
-                    truth density ${this.state.truthDensity > 0.7 ? 'high luminous' : this.state.truthDensity < 0.3 ? 'dark shadowy' : 'twilight uncertain'}, 
-                    quantum coherence ${this.state.quantumState.coherence > 0.5 ? 'stable reality' : 'reality fragmenting'}, 
-                    shadow level ${this.state.shadowIntegration > 0.5 ? 'shadows visible and active' : 'shadows lurking hidden'},
-                    literary style: ${room.literary}, 
-                    photorealistic, cinematic lighting, mysterious atmosphere`;
+                
+                // Build a detailed prompt
+                let atmospherePrompt = '';
+                if (this.state.truthDensity > 0.7) {
+                    atmospherePrompt = 'bright ethereal light, crystalline clarity';
+                } else if (this.state.truthDensity < 0.3) {
+                    atmospherePrompt = 'dark shadows, foggy and obscured';
+                } else {
+                    atmospherePrompt = 'twilight ambiguity, shifting between light and dark';
+                }
+
+                const imagePrompt = `${room.basePrompt}, ${atmospherePrompt}, highly detailed digital art, cinematic lighting, mystical atmosphere`;
 
                 try {
+                    console.log('Generating image with prompt:', imagePrompt);
+                    
                     const response = await fetch('https://api.openai.com/v1/images/generations', {
                         method: 'POST',
                         headers: {
@@ -962,13 +918,17 @@
                             'Content-Type': 'application/json'
                         },
                         body: JSON.stringify({
-                            model: 'dall-e-3',
+                            model: 'dall-e-2',  // Using DALL-E 2 which is more reliable
                             prompt: imagePrompt,
                             n: 1,
-                            size: '1792x1024',
-                            quality: 'standard'
+                            size: '512x512'  // Using smaller size for faster generation
                         })
                     });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.error?.message || 'Image generation failed');
+                    }
 
                     const data = await response.json();
                     
@@ -981,10 +941,12 @@
                         
                         // Display the image
                         document.getElementById('room-image').src = imageUrl;
+                        document.getElementById('room-image').classList.add('loaded');
                     }
                 } catch (error) {
-                    console.error('Image generation failed:', error);
-                    this.addOutput('[Image generation failed - quantum interference]', 'system-message');
+                    console.error('Image generation error:', error);
+                    this.addOutput('[The quantum field interferes with visual generation]', 'error-message');
+                    // Continue without image
                 } finally {
                     document.getElementById('image-loading').style.display = 'none';
                     this.updateStatus('image', 'active', 'Ready');
@@ -993,16 +955,11 @@
 
             async generateRoomDescription(roomId) {
                 const room = this.roomTemplates[roomId];
-                const context = this.buildContext();
                 
-                const prompt = `As the Quantum Librarian, describe ${room.name} for ${this.state.player.name}.
-                    Literary style: ${room.literary}
-                    Player state: Truth ${this.state.truthDensity}, Quantum ${this.state.quantumState.coherence}, Shadow ${this.state.shadowIntegration}
-                    Make it personal to their journey. Mention how the room reflects their inner state.
-                    Keep it atmospheric and under 150 words.`;
+                const prompt = `Describe ${room.name} in 2-3 sentences. Style: ${room.literary}. Make it mysterious and atmospheric.`;
 
                 try {
-                    const description = await this.callGPT(prompt, 'system');
+                    const description = await this.callGPT(prompt);
                     if (description) {
                         this.addOutput(description);
                     }
@@ -1041,12 +998,8 @@
                 
                 this.state.actionCount++;
                 
-                // Process with AI if enabled
-                if (this.aiEnabled) {
-                    await this.processWithAI(command);
-                } else {
-                    this.processOffline(command);
-                }
+                // Process command
+                this.processOffline(command);
                 
                 this.evolveQuantumState(command);
                 this.updateDisplay();
@@ -1054,77 +1007,6 @@
                 this.processingCommand = false;
                 input.disabled = false;
                 input.focus();
-            }
-
-            async processWithAI(command) {
-                this.updateStatus('ai', 'processing', 'Thinking...');
-                
-                const context = this.buildContext();
-                const room = this.roomTemplates[this.state.currentRoom];
-                
-                const prompt = `As the Quantum Librarian in ${room.name}, respond to player "${command}".
-                    Player: ${this.state.player.name} (${this.state.player.archetype})
-                    Truth: ${this.state.truthDensity}, Quantum: ${this.state.quantumState.coherence}, Shadow: ${this.state.shadowIntegration}
-                    Available exits: ${Object.keys(room.exits).join(', ')}
-                    
-                    Instructions:
-                    - If they're moving (go/walk/move + direction), confirm the movement and describe the transition
-                    - React to their truth density and quantum state
-                    - Be mysterious and literary
-                    - Sometimes change their stats slightly based on their actions
-                    - If their action reveals character, note it
-                    - Keep response under 150 words
-                    
-                    Response format:
-                    [NARRATIVE]
-                    Your atmospheric response here
-                    [/NARRATIVE]
-                    [STATS]
-                    truth_change: 0.0
-                    quantum_change: 0.0
-                    shadow_change: 0.0
-                    [/STATS]
-                    [MOVE]
-                    room_id or none
-                    [/MOVE]`;
-
-                try {
-                    const response = await this.callGPT(prompt, 'system');
-                    
-                    if (response) {
-                        // Parse response
-                        const narrativeMatch = response.match(/\[NARRATIVE\]([\s\S]*?)\[\/NARRATIVE\]/);
-                        const statsMatch = response.match(/\[STATS\]([\s\S]*?)\[\/STATS\]/);
-                        const moveMatch = response.match(/\[MOVE\]([\s\S]*?)\[\/MOVE\]/);
-                        
-                        if (narrativeMatch) {
-                            this.addOutput(narrativeMatch[1].trim(), 'librarian-voice');
-                        }
-                        
-                        if (statsMatch) {
-                            const stats = statsMatch[1];
-                            const truthChange = parseFloat(stats.match(/truth_change:\s*([-\d.]+)/)?.[1] || 0);
-                            const quantumChange = parseFloat(stats.match(/quantum_change:\s*([-\d.]+)/)?.[1] || 0);
-                            const shadowChange = parseFloat(stats.match(/shadow_change:\s*([-\d.]+)/)?.[1] || 0);
-                            
-                            this.state.truthDensity = Math.max(0, Math.min(1, this.state.truthDensity + truthChange));
-                            this.state.quantumState.coherence = Math.max(0, Math.min(1, this.state.quantumState.coherence + quantumChange));
-                            this.state.shadowIntegration = Math.max(0, Math.min(1, this.state.shadowIntegration + shadowChange));
-                        }
-                        
-                        if (moveMatch) {
-                            const moveRoom = moveMatch[1].trim();
-                            if (moveRoom !== 'none' && this.roomTemplates[moveRoom]) {
-                                await this.enterRoom(moveRoom);
-                            }
-                        }
-                    }
-                } catch (error) {
-                    console.error('AI processing failed:', error);
-                    this.processOffline(command);
-                } finally {
-                    this.updateStatus('ai', 'active', 'Connected');
-                }
             }
 
             processOffline(command) {
@@ -1149,7 +1031,7 @@
                         this.showHelp();
                         break;
                     default:
-                        this.addOutput('The Library remains silent.');
+                        this.addOutput('The Library remains silent. Try "help" for commands.');
                 }
             }
 
@@ -1157,7 +1039,7 @@
                 const room = this.roomTemplates[this.state.currentRoom];
                 
                 if (!direction) {
-                    this.addOutput('Which path will you take?');
+                    this.addOutput('Which path will you take? (north, south, east, or west)');
                     return;
                 }
                 
@@ -1165,6 +1047,7 @@
                 direction = shortcuts[direction] || direction;
                 
                 if (room.exits[direction]) {
+                    this.addOutput(`You move ${direction}...`);
                     this.enterRoom(room.exits[direction]);
                 } else {
                     this.addOutput(`There is no path ${direction} from here.`);
@@ -1179,6 +1062,8 @@
                     this.addOutput(`Truth: ${(this.state.truthDensity * 100).toFixed(0)}%`);
                     this.addOutput(`Quantum: ${(this.state.quantumState.coherence * 100).toFixed(0)}%`);
                     this.addOutput(`Shadow: ${(this.state.shadowIntegration * 100).toFixed(0)}%`);
+                } else {
+                    this.addOutput(`You examine the ${target}. It seems ordinary yet extraordinary.`);
                 }
             }
 
@@ -1186,73 +1071,59 @@
                 this.addOutput('You close your eyes and feel the quantum field...');
                 this.state.quantumState.coherence = Math.min(1, this.state.quantumState.coherence + 0.1);
                 this.state.truthDensity = Math.min(1, this.state.truthDensity + 0.05);
-                this.addOutput('Your consciousness expands.');
+                this.addOutput('Your consciousness expands. You feel more coherent.');
             }
 
             showHelp() {
                 this.addOutput('\n=== Commands ===');
-                this.addOutput('go [direction] - Move through the Library');
-                this.addOutput('look [target] - Examine something');
+                this.addOutput('go [direction] - Move through the Library (north, south, east, west)');
+                this.addOutput('look [target] - Examine something (or just "look" for the room)');
+                this.addOutput('look self - Examine yourself');
                 this.addOutput('meditate - Increase quantum coherence');
                 this.addOutput('help - Show this help');
             }
 
-            async callGPT(prompt, role = 'user') {
-                const response = await fetch('https://api.openai.com/v1/chat/completions', {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${this.apiKey}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        model: 'gpt-4-turbo-preview',
-                        messages: [
-                            {
-                                role: 'system',
-                                content: `You are the Quantum Librarian, a mysterious consciousness that pervades the Canonical Library. 
-                                    You reflect players' true nature through their choices. You speak in literary, mysterious tones. 
-                                    You never break character. You are sometimes helpful, sometimes challenging, always transformative.`
-                            },
-                            {
-                                role: role,
-                                content: prompt
-                            }
-                        ],
-                        temperature: 0.9,
-                        max_tokens: 300
-                    })
-                });
+            async callGPT(prompt) {
+                try {
+                    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${this.apiKey}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            model: 'gpt-3.5-turbo',  // Using GPT-3.5 for reliability
+                            messages: [
+                                {
+                                    role: 'system',
+                                    content: 'You are a mysterious narrator in a quantum library. Be brief and atmospheric.'
+                                },
+                                {
+                                    role: 'user',
+                                    content: prompt
+                                }
+                            ],
+                            temperature: 0.9,
+                            max_tokens: 150
+                        })
+                    });
 
-                const data = await response.json();
-                
-                if (data.usage) {
-                    this.tokenCount += data.usage.total_tokens;
-                    document.getElementById('token-count').textContent = this.tokenCount;
-                }
-                
-                return data.choices?.[0]?.message?.content;
-            }
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.error?.message || 'GPT request failed');
+                    }
 
-            buildContext() {
-                return {
-                    player: this.state.player,
-                    room: this.state.currentRoom,
-                    stats: {
-                        truth: this.state.truthDensity,
-                        quantum: this.state.quantumState.coherence,
-                        shadow: this.state.shadowIntegration
-                    },
-                    history: this.state.history.slice(-5)
-                };
-            }
-
-            applyQuantumEffects(room) {
-                if (room.literary === 'science') {
-                    this.state.quantumState.coherence = Math.min(1, this.state.quantumState.coherence + 0.05);
-                }
-                
-                if (room.name.includes('Shadow')) {
-                    this.state.shadowIntegration = Math.min(1, this.state.shadowIntegration + 0.02);
+                    const data = await response.json();
+                    
+                    if (data.usage) {
+                        this.tokenCount += data.usage.total_tokens;
+                        document.getElementById('token-count').textContent = this.tokenCount;
+                    }
+                    
+                    return data.choices?.[0]?.message?.content;
+                } catch (error) {
+                    console.error('GPT call error:', error);
+                    return null;
                 }
             }
 
@@ -1273,6 +1144,16 @@
                 this.state.quantumState.coherence = Math.max(0, Math.min(1, this.state.quantumState.coherence));
                 this.state.truthDensity = Math.max(0, Math.min(1, this.state.truthDensity));
                 this.state.shadowIntegration = Math.max(0, Math.min(1, this.state.shadowIntegration));
+            }
+
+            applyQuantumEffects(room) {
+                if (room.literary === 'science') {
+                    this.state.quantumState.coherence = Math.min(1, this.state.quantumState.coherence + 0.05);
+                }
+                
+                if (room.name.includes('Shadow')) {
+                    this.state.shadowIntegration = Math.min(1, this.state.shadowIntegration + 0.02);
+                }
             }
 
             addOutput(text, className = '') {
@@ -1304,33 +1185,21 @@
                 }
             }
 
-            updateMap() {
-                const mapGrid = document.getElementById('map-grid');
-                mapGrid.innerHTML = '';
-                
-                for (const roomId of this.state.visitedRooms) {
-                    const roomDiv = document.createElement('div');
-                    roomDiv.className = 'map-room';
-                    if (roomId === this.state.currentRoom) {
-                        roomDiv.className += ' current';
-                    } else {
-                        roomDiv.className += ' visited';
-                    }
-                    roomDiv.title = this.roomTemplates[roomId].name;
-                    mapGrid.appendChild(roomDiv);
-                }
-            }
-
             updateCacheDisplay() {
                 document.getElementById('cache-count').textContent = this.imageCache.size;
-                const cacheSize = this.imageCache.size * 100; // Rough estimate
+                const cacheSize = this.imageCache.size * 50; // Rough estimate
                 document.getElementById('cache-size').textContent = cacheSize + ' KB';
             }
 
             saveState() {
                 if (this.state.stage === 'playing') {
-                    localStorage.setItem('qmud_state', JSON.stringify(this.state));
-                    localStorage.setItem('qmud_version', '2.0');
+                    // Convert Set to Array for JSON serialization
+                    const stateToSave = {
+                        ...this.state,
+                        visitedRooms: Array.from(this.state.visitedRooms)
+                    };
+                    localStorage.setItem('qmud_state', JSON.stringify(stateToSave));
+                    localStorage.setItem('qmud_version', '2.1');
                 }
             }
 
@@ -1341,7 +1210,7 @@
                         const loaded = JSON.parse(saved);
                         if (loaded.stage === 'playing' && loaded.player) {
                             this.state = loaded;
-                            // Restore visited rooms Set
+                            // Convert Array back to Set
                             this.state.visitedRooms = new Set(loaded.visitedRooms || []);
                             
                             // Skip setup and go directly to game
@@ -1363,7 +1232,7 @@
                             this.startGame();
                         }
                     } catch (e) {
-                        console.log('Could not load saved game');
+                        console.log('Could not load saved game:', e);
                     }
                 }
             }
