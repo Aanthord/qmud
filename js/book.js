@@ -13,7 +13,7 @@ function extractJSON(text) {
   const m1 = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (m1) { try { return JSON.parse(m1[1]); } catch {} }
   // 3) [JSON]...[/JSON]
-  const m2 = t.match(/$begin:math:display$JSON$end:math:display$([\s\S]*?)$begin:math:display$\\/JSON$end:math:display$/i);
+  const m2 = t.match(/$begin:math:display$JSON$end:math:display$([\s\S]_?)$begin:math:display$\\/JSON$end:math:display$/i);
   if (m2) { try { return JSON.parse(m2[1]); } catch {} }
   // 4) first {...}
   const s = t.indexOf('{'); const e = t.lastIndexOf('}');
