@@ -1,6 +1,5 @@
 // js/books.js
 // Dynamic books: branching pages (JSON), illustrations, stat effects, Aterna events.
-
 import { Topics } from './aterna.js';
 import { clamp01 } from './utils.js';
 
@@ -13,7 +12,7 @@ function extractJSON(text) {
   const m1 = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (m1) { try { return JSON.parse(m1[1]); } catch {} }
   // 3) [JSON]...[/JSON]
-  const m2 = t.match(/$begin:math:display$JSON$end:math:display$([\s\S]_?)$begin:math:display$\\/JSON$end:math:display$/i);
+  const m2 = t.match(/\[JSON\]([\s\S]*?)\[\/JSON\]/i);
   if (m2) { try { return JSON.parse(m2[1]); } catch {} }
   // 4) first {...}
   const s = t.indexOf('{'); const e = t.lastIndexOf('}');
@@ -37,11 +36,10 @@ export class BooksEngine {
   }
 
   // ----- Public Commands -----
-
   list() {
     const books = this._availableBooks();
     if (!books.length) {
-      this.g.addOutput('You carry no books. Seek them in the stacks or the Scribe’s bazaar.');
+      this.g.addOutput('You carry no books. Seek them in the stacks or the Scribe's bazaar.');
       return;
     }
     const lines = ['[Books]'];
@@ -54,7 +52,7 @@ export class BooksEngine {
     const id = this._findBookId(token);
     if (!id) { this.g.addOutput('Name the book clearly.'); return; }
     this._ensureSession(id);
-    if (!this.g.aiEnabled) { this.g.addOutput('This book remains blank without the Librarian’s voice (AI is offline).'); return; }
+    if (!this.g.aiEnabled) { this.g.addOutput('This book remains blank without the Librarian's voice (AI is offline).'); return; }
     // If session has a current page, show it; else start at page 1
     if (this.g.state.bookSession?.current) {
       this._renderCurrent();
@@ -70,9 +68,7 @@ export class BooksEngine {
     if (!s?.current) { this.g.addOutput('No book is open.'); return; }
     const page = s.pages[s.current];
     if (!page?.choices || !page.choices.length) { this.g.addOutput('This page offers no choice.'); return; }
-
     let choice = null;
-
     // numeric index
     const idx = parseInt(token, 10);
     if (!isNaN(idx) && idx >= 1 && idx <= page.choices.length) {
@@ -84,12 +80,9 @@ export class BooksEngine {
                                       (c.id && c.id.toLowerCase().startsWith(low)) ||
                                       (c.label && c.label.toLowerCase().startsWith(low)));
     }
-
     if (!choice) { this.g.addOutput('Choice not found.'); return; }
-
     // Apply immediate choice effects
     this._applyEffects(choice.effects || {});
-
     // Append to path and generate next
     s.path.push(choice.id || String(page.choices.indexOf(choice)));
     await this._generatePage([...s.path], choice);
@@ -99,7 +92,6 @@ export class BooksEngine {
     const s = this.g.state.bookSession;
     if (!s?.current) { this.g.addOutput('No book is open.'); return; }
     if (!this.g.aiEnabled) { this.g.addOutput('The pages rustle but do not answer (AI offline).'); return; }
-
     const page = s.pages[s.current];
     const prompt = this._promptAsk(s, page, q);
     const answer = await this.g.ai.callLLM(prompt);
@@ -153,7 +145,6 @@ export class BooksEngine {
   }
 
   // ----- Internals -----
-
   _availableBooks() {
     const invIds = this.g.state.inventory || [];
     return invIds
@@ -204,25 +195,20 @@ export class BooksEngine {
     const roomId = this.g.state.currentRoom || 'nowhere';
     const room = this.g.roomTemplates[roomId];
     const prompt = this._promptPage(s, path, room?.name || roomId, chosen);
-
     const raw = await this.g.ai.callLLM(prompt);
     const obj = extractJSON(raw);
-
     if (!obj || !obj.page_id || !obj.prose) {
       this.g.addOutput('[The page refuses to resolve. Try again.]', 'system-message');
       return;
     }
-
     // Normalize shape
     obj.title = obj.title || `Leaf ${Object.keys(s.pages).length + 1}`;
     obj.choices = Array.isArray(obj.choices) ? obj.choices.slice(0, 6) : [];
     // Apply any page.on_enter effects (optional)
     if (obj.effects && typeof obj.effects === 'object') this._applyEffects(obj.effects);
-
     s.pages[obj.page_id] = obj;
     s.current = obj.page_id;
     s.lastAt = Date.now();
-
     this._renderCurrent();
     this._publishBookEvent('book_page', { page_id: obj.page_id, choice_id: chosen?.id || null });
     // snapshot (optional)
@@ -284,7 +270,6 @@ export class BooksEngine {
       insight: this.g.state.insight,
       hp: this.g.state.hp
     };
-
     return `
 You are the Quantum Librarian generating a branching page in an in‑world book.
 Book Title: "${session.title}"
