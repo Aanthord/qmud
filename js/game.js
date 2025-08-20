@@ -1468,12 +1468,27 @@ This is not a recognized game command. Give a brief (under 50 words), atmospheri
     try {
       const loaded = JSON.parse(saved);
       if (loaded.stage === 'playing' && loaded.player) {
-        this.state = loaded;
-        this.state.visitedRooms = new Set(loaded.visitedRooms || []);
+        // Preserve existing state structure and merge
+        this.state = {
+          ...this.state,  // Keep defaults for any new properties
+          ...loaded,      // Override with saved values
+          visitedRooms: new Set(loaded.visitedRooms || [])
+        };
+        
+        // Ensure all required properties exist (backward compatibility)
+        this.state.bookSession = this.state.bookSession || null;
+        this.state.creationData = this.state.creationData || { observations: [], currentScene: 0, startTime: Date.now() };
+        this.state.hp = this.state.hp ?? 100;
+        this.state.insight = this.state.insight || 0;
+        
         document.getElementById('setup-screen').style.display = 'none';
         document.getElementById('game-container').style.display = 'block';
         document.getElementById('covenant').style.display = 'none';
         document.getElementById('creation').style.display = 'none';
+        document.getElementById('game').style.display = 'block';
+        document.getElementById('character').style.display = 'block';
+        document.getElementById('map').style.display = 'block';
+        
         const savedKey = localStorage.getItem('qmud_api_key');
         if (savedKey) {
           this.apiKey = savedKey;
@@ -1481,11 +1496,26 @@ This is not a recognized game command. Give a brief (under 50 words), atmospheri
           document.getElementById('status-panel').style.display = 'block';
           this.updateStatus('ai','active','Connected');
           this.updateStatus('image','active','Ready');
+        } else {
+          document.getElementById('status-panel').style.display = 'block';
+          this.updateStatus('ai','inactive','Offline');
+          this.updateStatus('image','inactive','Offline');
         }
-        this.startGame();
+        
+        // Don't call startGame() as it resets the room - just update display
+        this.updateDisplay();
+        this.updateMap();
+        
+        // Re-enter current room to refresh display without resetting state
+        if (this.state.currentRoom) {
+          const currentRoom = this.state.currentRoom;
+          this.state.currentRoom = null; // Temporarily clear to force re-entry
+          this.enterRoom(currentRoom);
+        }
       }
-    } catch {
-      console.log('Could not load saved game');
+    } catch (e) {
+      console.error('Could not load saved game:', e);
+      alert('Failed to load save file. It may be from an incompatible version.');
     }
   }
 
