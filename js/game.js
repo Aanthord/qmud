@@ -16,7 +16,7 @@ export class QuantumTruthMUD {
     // --- Runtime configuration ---
     this.apiKey = null;
     this.textModel = 'gpt-4o-mini';
-    this.imageModel = 'gpt-image-1';
+    this.imageModel = 'dall-e-3';
     this.aiEnabled = false;
 
     // Image caching
