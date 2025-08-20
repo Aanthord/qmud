@@ -255,21 +255,30 @@ export class QuantumTruthMUD {
   /**
    * Start character creation scenes.
    */
-  startCharacterCreation() { this.showCreationScene(0); }
+  startCharacterCreation() { 
+    this.showCreationScene(0); 
+  }
 
   /**
    * Render a creation scene and attach handlers.
    */
   showCreationScene(index) {
-    if (index >= this.creationScenes.length) { this.finalizeCharacter(); return; }
+    if (index >= this.creationScenes.length) { 
+      this.finalizeCharacter(); 
+      return; 
+    }
     const scene = this.creationScenes[index];
     const textEl = document.getElementById('creation-text');
     const choicesEl = document.getElementById('creation-choices');
-    textEl.textContent = scene.text; choicesEl.innerHTML = '';
+    textEl.textContent = scene.text; 
+    choicesEl.innerHTML = '';
 
     if (scene.choices[0]?.input) {
       const input = document.createElement('input');
-      input.type = 'text'; input.className = 'api-input'; input.placeholder = 'Your true name…'; input.style.marginBottom = '10px';
+      input.type = 'text'; 
+      input.className = 'api-input'; 
+      input.placeholder = 'Your true name…'; 
+      input.style.marginBottom = '10px';
       choicesEl.appendChild(input);
       scene.choices.forEach(choice => {
         const btn = document.createElement('button');
@@ -646,8 +655,8 @@ room_id or none
       const response = await this.ai.callLLM(prompt);
       if (response) {
         const narrativeMatch = response.match(/\[NARRATIVE\]([\s\S]*?)\[\/NARRATIVE\]/);
-        const statsMatch = response.match(/\[STATS\]([\\s\S]*?)\[\/STATS\]/);
-        const moveMatch = response.match(/\[MOVE\]([\\s\S]*?)\[\/MOVE\]/);
+        const statsMatch = response.match(/\[STATS\]([\s\S]*?)\[\/STATS\]/);
+        const moveMatch = response.match(/\[MOVE\]([\s\S]*?)\[\/MOVE\]/);
 
         if (narrativeMatch) {
           this.addOutput(narrativeMatch[1].trim(), 'librarian-voice');
