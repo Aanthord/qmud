@@ -1,5 +1,5 @@
 // js/game.js
-// Complete file — fixed: showHelp() moved outside constructor; creationScenes default -> [].
+// Complete file — fixed: proper command processing flow, AI only for scene generation
 
 import { clamp01, downloadJSON } from './utils.js';
 import { AIClient } from './ai.js';
@@ -581,6 +581,8 @@ export class QuantumTruthMUD {
 
   /**
    * Process user input (main entrypoint).
+   * ALL commands go through processOffline for game logic.
+   * AI is only used for specific scene generation, not command interpretation.
    */
   async processCommand() {
     const input = document.getElementById('command-input');
@@ -594,11 +596,9 @@ export class QuantumTruthMUD {
     input.value = '';
     this.state.actionCount++;
 
-    if (this.aiEnabled) {
-      await this.processWithAI(command);
-    } else {
-      this.processOffline(command);
-    }
+    // Always process commands through game logic
+    // Never send raw commands to AI for interpretation
+    await this.processOffline(command);
 
     this.evolveQuantumState(command);
     this.updateDisplay();
@@ -608,86 +608,10 @@ export class QuantumTruthMUD {
   }
 
   /**
-   * Process command via AI when AI-enabled.
+   * Process commands - handles ALL game logic
+   * Only calls AI for specific scene generation needs (room descriptions, book content)
    */
-  async processWithAI(command) {
-    // Special-case: look/examine triggers visual refresh rather than full AI prompt
-    if (/^(look|examine)\b/i.test(command)) {
-      await this.refreshRoomVisuals({ reDescribe:true });
-      return;
-    }
-
-    // Rate limit AI
-    if (this._shouldRateLimit()) {
-      this.addOutput('[AI cooling down…]', 'system-message');
-      return;
-    }
-
-    const room = this.roomTemplates[this.state.currentRoom];
-    const prompt =
-`As the Quantum Librarian in ${room.name}, respond to player "${command}".
-Player: ${this.state.player.name} (${this.state.player.archetype})
-Truth: ${this.state.truthDensity}, Quantum: ${this.state.quantumState.coherence}, Shadow: ${this.state.shadowIntegration}
-Available exits: ${Object.keys(room.exits || {}).join(', ')}
-
-Instructions:
-- If they're moving (go/walk/move + direction), confirm movement and describe the transition
-- React to their truth density and quantum state
-- Be mysterious and literary
-- Sometimes change their stats slightly based on their actions
-- If their action reveals character, note it
-- Keep response under 150 words
-
-Response format:
-[NARRATIVE]
-Your atmospheric response here
-[/NARRATIVE]
-[STATS]
-truth_change: 0.0
-quantum_change: 0.0
-shadow_change: 0.0
-[/STATS]
-[MOVE]
-room_id or none
-[/MOVE]`;
-
-    try {
-      const response = await this.ai.callLLM(prompt);
-      if (response) {
-        const narrativeMatch = response.match(/\[NARRATIVE\]([\s\S]*?)\[\/NARRATIVE\]/);
-        const statsMatch = response.match(/\[STATS\]([\s\S]*?)\[\/STATS\]/);
-        const moveMatch = response.match(/\[MOVE\]([\s\S]*?)\[\/MOVE\]/);
-
-        if (narrativeMatch) {
-          this.addOutput(narrativeMatch[1].trim(), 'librarian-voice');
-        }
-        if (statsMatch) {
-          const stats = statsMatch[1];
-          const truthChange = parseFloat((stats.match(/truth_change:\s*([\-\d.]+)/) || [])[1] || 0);
-          const quantumChange = parseFloat((stats.match(/quantum_change:\s*([\-\d.]+)/) || [])[1] || 0);
-          const shadowChange = parseFloat((stats.match(/shadow_change:\s*([\-\d.]+)/) || [])[1] || 0);
-          this.state.truthDensity = clamp01(this.state.truthDensity + truthChange);
-          this.state.quantumState.coherence = clamp01(this.state.quantumState.coherence + quantumChange);
-          this.state.shadowIntegration = clamp01(this.state.shadowIntegration + shadowChange);
-          this.publishPlayerState('stats').catch(()=>{});
-        }
-        if (moveMatch) {
-          const mv = moveMatch[1].trim();
-          if (mv !== 'none' && this.roomTemplates[mv]) {
-            await this.enterRoom(mv);
-          }
-        }
-      }
-    } catch {
-      // Fallback: offline processing if AI fails
-      this.processOffline(command);
-    }
-  }
-
-  /**
-   * Process commands in offline mode (non-AI).
-   */
-  processOffline(command) {
+  async processOffline(command) {
     const words = command.toLowerCase().split(' ');
     const verb = words[0];
     const target = words.slice(1).join(' ');
@@ -695,12 +619,12 @@ room_id or none
     switch (verb) {
       // Movement
       case 'go': case 'move': case 'walk':
-        this.handleMovement(target);
+        await this.handleMovement(target);
         break;
 
-      // Look / examine
+      // Look / examine - these can use AI for descriptions
       case 'look': case 'examine':
-        this.handleLook(target);
+        await this.handleLook(target);
         break;
 
       // Meditation & stats
@@ -746,10 +670,10 @@ room_id or none
         this.showShop();
         break;
       case 'buy':
-        this.buyItem(target);
+        await this.buyItem(target);
         break;
       case 'sell':
-        this.sellItem(target);
+        await this.sellItem(target);
         break;
 
       // Learning & evolution
@@ -770,53 +694,89 @@ room_id or none
         this.cmdWho();
         break;
       case 'say':
-        this.cmdSay(target);
+        await this.cmdSay(target);
         break;
       case 'attack':
-        this.cmdAttack(target);
+        await this.cmdAttack(target);
         break;
 
-      // Books
+      // Books - these use AI for content generation
       case 'books':
         this.books.list();
         break;
       case 'read':
       case 'open':
-        this.books.open(target);
+        await this.books.open(target);
         break;
       case 'choose':
-        this.books.choose(target);
+        await this.books.choose(target);
         break;
       case 'ask':
-        this.books.ask(target);
+        await this.books.ask(target);
         break;
       case 'draw':
-        this.books.draw();
+        await this.books.draw();
         break;
       case 'book':
-        this._dispatchBookSubcommand(words.slice(1));
+        await this._dispatchBookSubcommand(words.slice(1));
         break;
 
       // Redraw room image
       case 'redraw':
-        this.refreshRoomVisuals({ reDescribe:true, forceRegenerate:true });
+        await this.refreshRoomVisuals({ reDescribe: true, forceRegenerate: true });
         break;
 
       default:
-        this.addOutput('The Library remains silent.');
+        // For unrecognized commands, if AI is enabled, get a contextual response
+        if (this.aiEnabled) {
+          await this.processUnknownWithAI(command);
+        } else {
+          this.addOutput('The Library remains silent.');
+        }
         break;
+    }
+  }
+
+  /**
+   * Process unrecognized commands with AI for flavor text only
+   * This should NOT change game state or move the player
+   */
+  async processUnknownWithAI(command) {
+    // Rate limit AI
+    if (this._shouldRateLimit()) {
+      this.addOutput('[The Librarian is contemplating...]', 'system-message');
+      return;
+    }
+
+    const room = this.roomTemplates[this.state.currentRoom];
+    const prompt = `As the Quantum Librarian in ${room.name}, the player tried an action: "${command}".
+This is not a recognized game command. Give a brief (under 50 words), atmospheric response that:
+- Acknowledges their intent mysteriously
+- Does NOT move them or change game state
+- Suggests they might try 'help' for commands
+- Stays in character as the enigmatic Librarian`;
+
+    try {
+      const response = await this.ai.callLLM(prompt);
+      if (response) {
+        this.addOutput(response, 'librarian-voice');
+      } else {
+        this.addOutput('The Library remains silent.');
+      }
+    } catch {
+      this.addOutput('The Library remains silent.');
     }
   }
 
   /**
    * Dispatch subcommands for "book" verb.
    */
-  _dispatchBookSubcommand(args) {
+  async _dispatchBookSubcommand(args) {
     const sub = (args[0] || '').toLowerCase();
     const rest = args.slice(1).join(' ');
     switch (sub) {
       case 'open':
-        this.books.open(rest);
+        await this.books.open(rest);
         break;
       case 'close':
         this.books.close();
@@ -828,16 +788,16 @@ room_id or none
         this.books.summary();
         break;
       case 'ask':
-        this.books.ask(rest);
+        await this.books.ask(rest);
         break;
       case 'choose':
-        this.books.choose(rest);
+        await this.books.choose(rest);
         break;
       case 'draw':
-        this.books.draw();
+        await this.books.draw();
         break;
       default:
-        this.addOutput('Book commands: book open <name>, book close, book resume, book summary, book ask <q>, book choose <n|id>, book draw');
+        this.addOutput('Book commands: book open <n>, book close, book resume, book summary, book ask <q>, book choose <n|id>, book draw');
     }
   }
 
@@ -851,15 +811,15 @@ room_id or none
 - Shop (when vendor present): shop, buy <item>, sell <item>
 - Learning/Money: learn|study (gain Ξ Insight)
 - Evolution: evolve (consume items/Ξ to advance stage)
-- Multiplayer: who, say <text>, attack <name>
+- Multiplayer: who, say <text>, attack <n>
 - Books: books, read <book>, choose <n|id>, ask <question>, draw, book close|resume|summary
 - Progress/Saves: progress, save, load, reset, redraw (force regenerate room art)`
     );
   }
 
-  // ================= Command handlers (offline) =================
+  // ================= Command handlers =================
 
-  handleMovement(direction) {
+  async handleMovement(direction) {
     const room = this.roomTemplates[this.state.currentRoom];
     if (!direction) {
       this.addOutput('Which path will you take?');
@@ -868,17 +828,17 @@ room_id or none
     const shortcuts = { n:'north', s:'south', e:'east', w:'west' };
     direction = shortcuts[direction] || direction;
     if (room?.exits?.[direction]) {
-      this.enterRoom(room.exits[direction]);
+      await this.enterRoom(room.exits[direction]);
     } else {
       this.addOutput(`There is no path ${direction} from here.`);
     }
   }
 
-  handleLook(target) {
+  async handleLook(target) {
     const around = !target || target === 'around';
     if (around) {
       if (this.aiEnabled) {
-        this.refreshRoomVisuals({ reDescribe:true });
+        await this.refreshRoomVisuals({ reDescribe: true });
       } else {
         this.addOutput(this.getOfflineRoomDescription(this.state.currentRoom));
       }
